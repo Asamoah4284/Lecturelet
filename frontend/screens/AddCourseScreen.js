@@ -804,10 +804,11 @@ const AddCourseScreen = ({ navigation, route }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#2563eb',
   },
   header: {
     backgroundColor: '#2563eb',
+    paddingTop: Platform.OS === 'android' ? 28 : 0,
     paddingBottom: 20,
     paddingHorizontal: 16,
     flexDirection: 'row',
@@ -827,6 +828,7 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+    backgroundColor: '#ffffff',
   },
   scrollContent: {
     paddingBottom: 32,

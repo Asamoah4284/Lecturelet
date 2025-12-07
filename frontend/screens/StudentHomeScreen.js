@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -253,16 +254,17 @@ const StudentHomeScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#2563eb',
   },
   header: {
     backgroundColor: '#2563eb',
-    paddingTop: 16,
+    paddingTop: Platform.OS === 'android' ? 28 : 0,
     paddingBottom: 20,
     paddingHorizontal: 16,
   },
   content: {
     flex: 1,
+    backgroundColor: '#ffffff',
   },
   scrollContent: {
     paddingHorizontal: 20,

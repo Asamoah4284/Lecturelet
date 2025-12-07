@@ -9,6 +9,7 @@ import {
   Switch,
   Alert,
   TextInput,
+  Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -325,11 +326,11 @@ const SettingsScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#2563eb',
   },
   header: {
     backgroundColor: '#2563eb',
-    paddingTop: 16,
+    paddingTop: Platform.OS === 'android' ? 28 : 0,
     paddingBottom: 20,
     paddingHorizontal: 16,
   },
@@ -340,6 +341,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+    backgroundColor: '#f9fafb',
   },
   scrollContent: {
     paddingHorizontal: 20,

@@ -10,6 +10,7 @@ import {
   View,
   Linking,
   Alert,
+  Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -131,7 +132,7 @@ const StudentTimetableScreen = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.screen}>
-      <StatusBar style="light" />
+      <StatusBar style="light" hidden={false} translucent={false} backgroundColor="#2563eb" />
 
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
@@ -258,11 +259,11 @@ const StudentTimetableScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#2563eb',
   },
   header: {
     backgroundColor: '#2563eb',
-    paddingTop: 28,
+    paddingTop: Platform.OS === 'android' ? 28 : 0,
     paddingBottom: 20,
     paddingHorizontal: 16,
     flexDirection: 'row',
@@ -282,7 +283,7 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 18,
     fontWeight: '700',
-    
+
   },
   exportButton: {
     flexDirection: 'row',
@@ -301,6 +302,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+    backgroundColor: '#ffffff',
   },
   scrollContent: {
     paddingHorizontal: 16,

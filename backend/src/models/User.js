@@ -2,11 +2,10 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema({
-  email: {
+  phoneNumber: {
     type: String,
     required: true,
     unique: true,
-    lowercase: true,
     trim: true
   },
   password: {
@@ -34,6 +33,10 @@ const userSchema = new mongoose.Schema({
   reminderMinutes: {
     type: Number,
     default: 15
+  },
+  paymentStatus: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true
@@ -51,20 +54,14 @@ userSchema.methods.verifyPassword = function(plainPassword) {
   return bcrypt.compareSync(plainPassword, this.password);
 };
 
-// Static method to find by email (includes password for auth)
-userSchema.statics.findByEmail = function(email) {
-  return this.findOne({ email: email.toLowerCase() });
+// Static method to find by phone number (includes password for auth)
+userSchema.statics.findByPhoneNumber = function(phoneNumber) {
+  return this.findOne({ phoneNumber: phoneNumber.trim() });
 };
 
-// Static method to find by email (public data only)
-userSchema.statics.findByEmailPublic = function(email) {
-  return this.findOne({ email: email.toLowerCase() })
-    .select('-password');
-};
-
-// Static method to check if email exists
-userSchema.statics.emailExists = async function(email) {
-  const user = await this.findOne({ email: email.toLowerCase() });
+// Static method to check if phone number exists
+userSchema.statics.phoneNumberExists = async function(phoneNumber) {
+  const user = await this.findOne({ phoneNumber: phoneNumber.trim() });
   return !!user;
 };
 
@@ -72,12 +69,13 @@ userSchema.statics.emailExists = async function(email) {
 userSchema.methods.toPublicJSON = function() {
   return {
     id: this._id,
-    email: this.email,
+    phone_number: this.phoneNumber,
     full_name: this.fullName,
     role: this.role,
     student_id: this.studentId,
     notifications_enabled: this.notificationsEnabled,
     reminder_minutes: this.reminderMinutes,
+    payment_status: this.paymentStatus,
     created_at: this.createdAt,
     updated_at: this.updatedAt
   };

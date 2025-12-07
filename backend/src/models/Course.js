@@ -29,6 +29,10 @@ const courseSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  dayTimes: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
+  },
   venue: {
     type: String,
     default: null
@@ -53,24 +57,35 @@ const courseSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
+  },
+  // Temporary edit fields
+  temporaryEditExpiresAt: {
+    type: Date,
+    default: null
+  },
+  originalValues: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null
+  },
+  // Allowed phone numbers for enrollment (whitelist)
+  allowedPhoneNumbers: {
+    type: [String],
+    default: []
   }
 }, {
   timestamps: true
 });
 
 /**
- * Generate a unique 6-character course code
+ * Generate a unique 5-digit course code
  */
 courseSchema.statics.generateUniqueCode = async function() {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let code;
   let exists = true;
   
   while (exists) {
-    code = '';
-    for (let i = 0; i < 6; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
+    // Generate a 5-digit number (10000 to 99999)
+    code = String(Math.floor(10000 + Math.random() * 90000));
     const existing = await this.findOne({ uniqueCode: code });
     exists = !!existing;
   }
@@ -120,6 +135,30 @@ courseSchema.statics.isCreator = async function(courseId, userId) {
 };
 
 /**
+ * Reset temporary edits that have expired
+ */
+courseSchema.statics.resetExpiredTemporaryEdits = async function() {
+  const now = new Date();
+  const courses = await this.find({
+    temporaryEditExpiresAt: { $lte: now, $ne: null },
+    originalValues: { $ne: null }
+  });
+
+  for (const course of courses) {
+    // Restore original values
+    if (course.originalValues) {
+      await this.findByIdAndUpdate(course._id, {
+        ...course.originalValues,
+        temporaryEditExpiresAt: null,
+        originalValues: null
+      });
+    }
+  }
+
+  return courses.length;
+};
+
+/**
  * Transform to expected API format
  */
 courseSchema.methods.toJSON = function() {
@@ -131,6 +170,7 @@ courseSchema.methods.toJSON = function() {
     days: this.days,
     start_time: this.startTime,
     end_time: this.endTime,
+    day_times: this.dayTimes,
     venue: this.venue,
     credit_hours: this.creditHours,
     index_from: this.indexFrom,
@@ -138,7 +178,8 @@ courseSchema.methods.toJSON = function() {
     course_rep_name: this.courseRepName,
     created_by: this.createdBy,
     created_at: this.createdAt,
-    updated_at: this.updatedAt
+    updated_at: this.updatedAt,
+    allowed_phone_numbers: this.allowedPhoneNumbers || []
   };
 };
 

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,12 +6,78 @@ import {
   SafeAreaView,
   TouchableOpacity,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+import { getApiUrl } from '../config/api';
 import Button from '../components/Button';
 
 const StudentHomeScreen = ({ navigation }) => {
+  const [userName, setUserName] = useState('Student');
+  const [enrolledCourses, setEnrolledCourses] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Load user data and courses on mount
+  useEffect(() => {
+    loadUserData();
+    loadCourses();
+  }, []);
+
+  // Reload courses when screen comes into focus
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadCourses();
+    });
+    return unsubscribe;
+  }, [navigation]);
+
+  const loadUserData = async () => {
+    try {
+      const userDataString = await AsyncStorage.getItem('@user_data');
+      if (userDataString) {
+        const userData = JSON.parse(userDataString);
+        if (userData.full_name) {
+          setUserName(userData.full_name);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading user data:', error);
+    }
+  };
+
+  const loadCourses = async () => {
+    try {
+      const token = await AsyncStorage.getItem('@auth_token');
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+
+      const response = await fetch(getApiUrl('enrollments/my-courses'), {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setEnrolledCourses(data.data.courses || []);
+      } else {
+        console.error('Error loading courses:', data.message);
+        setEnrolledCourses([]);
+      }
+    } catch (error) {
+      console.error('Error loading courses:', error);
+      setEnrolledCourses([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Get current date
   const getCurrentDate = () => {
     const date = new Date();
@@ -23,8 +89,18 @@ const StudentHomeScreen = ({ navigation }) => {
     return `${year}-${month}-${day} • ${dayName}`;
   };
 
-  // Mock data - in real app, this would come from context or API
-  const enrolledCourses = [];
+  const formatDays = (days) => {
+    if (!days || !Array.isArray(days)) return 'N/A';
+    return days.join(', ');
+  };
+
+  const formatTime = (startTime, endTime) => {
+    if (!startTime || !endTime) return 'N/A';
+    return `${startTime} - ${endTime}`;
+  };
+
+  // Show only first 3 courses on home screen
+  const displayedCourses = enrolledCourses.slice(0, 3);
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -37,7 +113,7 @@ const StudentHomeScreen = ({ navigation }) => {
         {/* Greeting Section */}
         <View style={styles.greetingRow}>
           <View style={styles.greetingLeft}>
-            <Text style={styles.greeting}>Hello, Student</Text>
+            <Text style={styles.greeting}>Hello, {userName}</Text>
             <Text style={styles.roleText}>Student</Text>
             <View style={styles.dateRow}>
               <Ionicons name="calendar-outline" size={16} color="#2563eb" style={styles.calendarIcon} />
@@ -48,20 +124,25 @@ const StudentHomeScreen = ({ navigation }) => {
             style={styles.addButton}
             onPress={() => navigation.navigate('StudentAddCourse')}
           >
-            <Ionicons name="add" size={28} color="#ffffff" />
+            <Ionicons name="add" size={22} color="#ffffff" />
           </TouchableOpacity>
         </View>
 
         {/* Section Header */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>My Enrolled Courses</Text>
-          <TouchableOpacity onPress={() => navigation.navigate('StudentCourses')}>
-            <Text style={styles.seeAllText}>See All</Text>
+          <TouchableOpacity onPress={() => navigation.navigate('StudentTimetable')}>
+            <Text style={styles.seeAllText}>View Timetable</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Empty State */}
-        {enrolledCourses.length === 0 ? (
+        {/* Courses List or Empty State */}
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#2563eb" />
+            <Text style={styles.loadingText}>Loading courses...</Text>
+          </View>
+        ) : enrolledCourses.length === 0 ? (
           <View style={styles.emptyState}>
             <View style={styles.emptyIconContainer}>
               <View style={styles.documentIcon}>
@@ -83,8 +164,53 @@ const StudentHomeScreen = ({ navigation }) => {
             />
           </View>
         ) : (
-          <View>
-            {/* Course list would go here */}
+          <View style={styles.coursesList}>
+            {displayedCourses.map((course) => (
+              <TouchableOpacity
+                key={course.id || course._id}
+                style={styles.courseCard}
+                activeOpacity={0.8}
+              >
+                <View style={styles.courseCardContent}>
+                  <View style={styles.courseIconContainer}>
+                    <Ionicons name="book" size={20} color="#2563eb" />
+                  </View>
+                  <View style={styles.courseInfo}>
+                    <Text style={styles.courseName} numberOfLines={1}>
+                      {course.course_name || course.courseName}
+                    </Text>
+                    <View style={styles.courseMetaRow}>
+                      <Text style={styles.courseCode}>
+                        {course.course_code || course.courseCode}
+                      </Text>
+                      <View style={styles.separator} />
+                      <View style={styles.timeRow}>
+                        <Ionicons name="time-outline" size={12} color="#6b7280" />
+                        <Text style={styles.timeText}>
+                          {formatTime(course.start_time || course.startTime, course.end_time || course.endTime)}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                  <View style={styles.codeBadge}>
+                    <Text style={styles.codeBadgeText}>
+                      {course.unique_code || course.uniqueCode}
+                    </Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            ))}
+            {enrolledCourses.length > 3 && (
+              <TouchableOpacity
+                style={styles.seeMoreButton}
+                onPress={() => navigation.navigate('StudentCourses')}
+              >
+                <Text style={styles.seeMoreText}>
+                  View all {enrolledCourses.length} courses
+                </Text>
+                <Ionicons name="chevron-forward" size={20} color="#2563eb" />
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </ScrollView>
@@ -176,9 +302,9 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   addButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#2563eb',
     justifyContent: 'center',
     alignItems: 'center',
@@ -242,6 +368,108 @@ const styles = StyleSheet.create({
   },
   createButton: {
     minWidth: 160,
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  coursesList: {
+    gap: 12,
+  },
+  courseCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    shadowColor: '#2563eb',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 8,
+    elevation: 3,
+    overflow: 'hidden',
+  },
+  courseCardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+  },
+  courseIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: '#eff6ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+  },
+  courseInfo: {
+    flex: 1,
+    marginRight: 8,
+  },
+  courseName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 6,
+  },
+  courseMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  courseCode: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+  separator: {
+    width: 1,
+    height: 12,
+    backgroundColor: '#e5e7eb',
+  },
+  timeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  timeText: {
+    fontSize: 11,
+    color: '#6b7280',
+  },
+  codeBadge: {
+    backgroundColor: '#f3f4f6',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 6,
+    minWidth: 50,
+    alignItems: 'center',
+  },
+  codeBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#374151',
+    letterSpacing: 0.5,
+  },
+  seeMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    marginTop: 8,
+  },
+  seeMoreText: {
+    fontSize: 14,
+    color: '#2563eb',
+    fontWeight: '600',
+    marginRight: 4,
   },
   bottomNav: {
     position: 'absolute',

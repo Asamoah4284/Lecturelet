@@ -71,7 +71,7 @@ const CourseListScreen = ({ navigation }) => {
           <Text style={styles.logoDot}>●</Text>
           <Text style={styles.logoText}>L</Text>
         </View>
-        <Text style={styles.title}>Lecturerlet</Text>
+        <Text style={styles.title}>LectureLet</Text>
         <Text style={styles.subtitle}>
           Manage and track all your lectures in one place.
         </Text>

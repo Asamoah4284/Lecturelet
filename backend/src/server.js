@@ -1,5 +1,5 @@
 /**
- * LecturerLet Backend Server
+ * LectureLet Backend Server
  * University Course Management API
  */
 
@@ -11,6 +11,7 @@ const config = require('./config');
 const routes = require('./routes');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 const connectDB = require('./config/database');
+const { startTemporaryEditResetJob } = require('./utils/temporaryEditReset');
 
 const app = express();
 
@@ -39,7 +40,7 @@ app.use('/api', routes);
 app.get('/', (req, res) => {
   res.json({
     success: true,
-    message: 'Welcome to LecturerLet API',
+    message: 'Welcome to LectureLet API',
     version: '1.0.0',
     documentation: '/api/health',
     endpoints: {
@@ -61,31 +62,16 @@ const startServer = async () => {
     // Connect to MongoDB
     await connectDB();
     
+    // Start temporary edit reset job (runs every hour)
+    startTemporaryEditResetJob();
+    
     // Start server
     const PORT = config.port;
     app.listen(PORT, () => {
-      console.log('');
-      console.log('╔════════════════════════════════════════════════════╗');
-      console.log('║                                                    ║');
-      console.log('║   🎓 LecturerLet Backend Server                    ║');
-      console.log('║                                                    ║');
-      console.log(`║   🚀 Server running on port ${PORT}                   ║`);
-      console.log(`║   📍 Environment: ${config.nodeEnv.padEnd(27)}║`);
-      console.log('║   🍃 Database: MongoDB                             ║');
-      console.log('║                                                    ║');
-      console.log('║   Endpoints:                                       ║');
-      console.log('║   • POST   /api/auth/signup                        ║');
-      console.log('║   • POST   /api/auth/login                         ║');
-      console.log('║   • GET    /api/auth/me                            ║');
-      console.log('║   • GET    /api/courses                            ║');
-      console.log('║   • POST   /api/enrollments/join                   ║');
-      console.log('║   • GET    /api/notifications                      ║');
-      console.log('║                                                    ║');
-      console.log('╚════════════════════════════════════════════════════╝');
-      console.log('');
+      console.log(`Server running on port ${PORT}`);
     });
   } catch (error) {
-    console.error('❌ Failed to start server:', error.message);
+    console.error('Failed to start server:', error.message);
     process.exit(1);
   }
 };

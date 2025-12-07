@@ -15,6 +15,8 @@ import SettingsScreen from '../screens/SettingsScreen';
 import StudentAddCourseScreen from '../screens/StudentAddCourseScreen';
 import StudentCoursesScreen from '../screens/StudentCoursesScreen';
 import StudentHomeScreen from '../screens/StudentHomeScreen';
+import CourseStudentsScreen from '../screens/CourseStudentsScreen';
+import StudentTimetableScreen from '../screens/StudentTimetableScreen';
 
 const Stack = createStackNavigator();
 
@@ -46,12 +48,20 @@ const AppNavigator = () => {
         <Stack.Screen
           name="Signup"
           component={SignupScreen}
-          options={{ headerShown: false }}
+          options={{ 
+            headerShown: false,
+            gestureEnabled: false,
+            animationEnabled: false,
+          }}
         />
         <Stack.Screen
           name="Login"
           component={LoginScreen}
-          options={{ headerShown: false }}
+          options={{ 
+            headerShown: false,
+            gestureEnabled: false,
+            animationEnabled: false,
+          }}
         />
         <Stack.Screen
           name="RoleSelect"
@@ -94,6 +104,11 @@ const AppNavigator = () => {
           options={{ headerShown: false }}
         />
         <Stack.Screen
+          name="StudentTimetable"
+          component={StudentTimetableScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
           name="StudentHome"
           component={StudentHomeScreen}
           options={{ headerShown: false }}
@@ -102,6 +117,11 @@ const AppNavigator = () => {
           name="Profile"
           component={ProfileScreen}
           options={{ title: 'Profile' }}
+        />
+        <Stack.Screen
+          name="CourseStudents"
+          component={CourseStudentsScreen}
+          options={{ headerShown: false }}
         />
       </Stack.Navigator>
     </NavigationContainer>

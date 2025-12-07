@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,16 +6,165 @@ import {
   SafeAreaView,
   TouchableOpacity,
   ScrollView,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getApiUrl } from '../config/api';
 
-const RoleSelectScreen = ({ navigation }) => {
-  const handleSelectRole = (role) => {
-    if (role === 'rep') {
-      navigation.replace('CourseRep');
+const RoleSelectScreen = ({ navigation, route }) => {
+  const [loadingRole, setLoadingRole] = useState(null);
+  const [error, setError] = useState('');
+  
+  // Get signup data from route params if coming from signup
+  const signupData = route?.params?.signupData;
+
+  // Disable back navigation when coming from signup
+  useEffect(() => {
+    if (signupData) {
+      navigation.setOptions({
+        gestureEnabled: false,
+        headerLeft: null,
+      });
+    }
+  }, [signupData, navigation]);
+
+  const handleSelectRole = async (role) => {
+    // If coming from signup, create account with selected role
+    if (signupData) {
+      await createAccountWithRole(role);
     } else {
-      navigation.replace('StudentHome');
+      // If coming from settings, update role via API
+      await updateUserRole(role);
+    }
+  };
+
+  const updateUserRole = async (role) => {
+    setLoadingRole(role);
+    setError('');
+
+    try {
+      // Get auth token
+      const token = await AsyncStorage.getItem('@auth_token');
+      if (!token) {
+        throw new Error('Not authenticated. Please log in again.');
+      }
+
+      // Map UI role to backend role
+      const backendRole = role === 'rep' ? 'course_rep' : 'student';
+
+      const response = await fetch(getApiUrl('auth/profile'), {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          role: backendRole,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to update role. Please try again.');
+      }
+
+      if (data.success && data.data) {
+        // Update stored user data
+        await AsyncStorage.setItem('@user_data', JSON.stringify(data.data.user));
+
+        // Navigate to appropriate screen based on new role
+        const targetScreen = role === 'rep' ? 'CourseRep' : 'StudentHome';
+        
+        navigation.reset({
+          index: 0,
+          routes: [{ name: targetScreen }],
+        });
+      } else {
+        throw new Error(data.message || 'Failed to update role. Please try again.');
+      }
+    } catch (err) {
+      setError(err.message || 'An error occurred. Please try again.');
+      Alert.alert('Role Update Failed', err.message || 'An error occurred. Please try again.');
+    } finally {
+      setLoadingRole(null);
+    }
+  };
+
+  const createAccountWithRole = async (role) => {
+    setLoadingRole(role);
+    setError('');
+
+    try {
+      // Check if signupData exists
+      if (!signupData || !signupData.phoneNumber || !signupData.password || !signupData.fullName) {
+        throw new Error('Signup data is missing. Please try signing up again.');
+      }
+
+      // Map UI role to backend role
+      const backendRole = role === 'rep' ? 'course_rep' : 'student';
+
+      const requestBody = {
+        phoneNumber: signupData.phoneNumber,
+        password: signupData.password,
+        fullName: signupData.fullName,
+        role: backendRole,
+      };
+
+      console.log('Creating account with:', { ...requestBody, password: '***' });
+
+      const response = await fetch(getApiUrl('auth/signup'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        // Log the full error for debugging
+        console.error('Signup error response:', {
+          status: response.status,
+          statusText: response.statusText,
+          data: data,
+        });
+        
+        // Handle validation errors
+        if (data.errors && Array.isArray(data.errors)) {
+          const errorMessages = data.errors.map(err => err.message || err.msg).join(', ');
+          throw new Error(errorMessages || data.message || 'Validation failed. Please check your input.');
+        }
+        
+        throw new Error(data.message || data.error || `Account creation failed (${response.status}). Please try again.`);
+      }
+
+      if (data.success && data.data) {
+        // Store token and user data
+        await AsyncStorage.setItem('@auth_token', data.data.token);
+        await AsyncStorage.setItem('@user_data', JSON.stringify(data.data.user));
+
+        // Reset navigation stack to prevent going back to login/signup
+        const targetScreen = role === 'rep' ? 'CourseRep' : 'StudentHome';
+        
+        navigation.reset({
+          index: 0,
+          routes: [{ name: targetScreen }],
+        });
+      } else {
+        throw new Error(data.message || 'Account creation failed. Please try again.');
+      }
+    } catch (err) {
+      console.error('Signup error:', err);
+      const errorMessage = err.message || 'An error occurred. Please try again.';
+      setError(errorMessage);
+      Alert.alert('Account Creation Failed', errorMessage);
+    } finally {
+      setLoadingRole(null);
     }
   };
 
@@ -44,13 +193,26 @@ const RoleSelectScreen = ({ navigation }) => {
           </Text>
         </View>
 
+        {/* Error message */}
+        {error ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        ) : null}
+
         {/* Role cards */}
         <View style={styles.cardContainer}>
           <TouchableOpacity
-            style={styles.roleCard}
+            style={[styles.roleCard, loadingRole && styles.roleCardDisabled]}
             activeOpacity={0.9}
             onPress={() => handleSelectRole('student')}
+            disabled={!!loadingRole}
           >
+            {loadingRole === 'student' ? (
+              <View style={styles.loadingOverlay}>
+                <ActivityIndicator size="small" color="#0ea5e9" />
+              </View>
+            ) : null}
             <View style={[styles.roleIconWrapper, styles.roleIconStudent]}>
               <Ionicons name="school-outline" size={24} color="#0ea5e9" />
             </View>
@@ -64,10 +226,16 @@ const RoleSelectScreen = ({ navigation }) => {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.roleCard}
+            style={[styles.roleCard, loadingRole && styles.roleCardDisabled]}
             activeOpacity={0.9}
             onPress={() => handleSelectRole('rep')}
+            disabled={!!loadingRole}
           >
+            {loadingRole === 'rep' ? (
+              <View style={styles.loadingOverlay}>
+                <ActivityIndicator size="small" color="#f97316" />
+              </View>
+            ) : null}
             <View style={[styles.roleIconWrapper, styles.roleIconRep]}>
               <Ionicons name="people-outline" size={24} color="#f97316" />
             </View>
@@ -196,6 +364,32 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#9ca3af',
     textAlign: 'center',
+  },
+  errorContainer: {
+    backgroundColor: '#fee2e2',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  errorText: {
+    color: '#dc2626',
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  roleCardDisabled: {
+    opacity: 0.6,
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    borderRadius: 20,
+    zIndex: 1,
   },
 });
 

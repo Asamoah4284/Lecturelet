@@ -1,7 +1,7 @@
 {
-  "name": "lecturerlet-backend",
+  "name": "LectureLet-backend",
   "version": "1.0.0",
-  "description": "Backend API for LecturerLet - University Course Management App",
+  "description": "Backend API for LectureLet - University Course Management App",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",

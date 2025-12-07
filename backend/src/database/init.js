@@ -1,6 +1,6 @@
 /**
  * Database Initialization Script
- * Connects to MongoDB for LecturerLet application
+ * Connects to MongoDB for LectureLet application
  */
 
 require('dotenv').config();

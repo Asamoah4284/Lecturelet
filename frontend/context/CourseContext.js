@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const CourseContext = createContext();
 
-const STORAGE_KEY = '@lecturerlet_courses';
+const STORAGE_KEY = '@LectureLet_courses';
 
 export const CourseProvider = ({ children }) => {
   const [courses, setCourses] = useState([]);
@@ -75,5 +75,7 @@ export const CourseProvider = ({ children }) => {
 };
 
 export default CourseContext;
+
+
 
 

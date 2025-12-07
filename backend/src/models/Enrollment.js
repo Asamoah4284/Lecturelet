@@ -55,13 +55,13 @@ enrollmentSchema.statics.getStudentCourses = async function(userId) {
  */
 enrollmentSchema.statics.getCourseStudents = async function(courseId) {
   const enrollments = await this.find({ courseId })
-    .populate('userId', 'fullName email studentId')
+    .populate('userId', 'fullName phoneNumber studentId')
     .sort({ enrolledAt: 1 });
   
   return enrollments.map(e => ({
     id: e.userId._id,
     full_name: e.userId.fullName,
-    email: e.userId.email,
+    phone_number: e.userId.phoneNumber,
     student_id: e.userId.studentId,
     enrolled_at: e.enrolledAt
   }));

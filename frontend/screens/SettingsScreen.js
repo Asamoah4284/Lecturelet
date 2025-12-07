@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,13 +7,164 @@ import {
   TouchableOpacity,
   ScrollView,
   Switch,
+  Alert,
+  TextInput,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import Button from '../components/Button';
+import { getApiUrl } from '../config/api';
 
 const SettingsScreen = ({ navigation }) => {
   const [dailyNotifications, setDailyNotifications] = useState(true);
+  const [userName, setUserName] = useState('');
+  const [userPhoneNumber, setUserPhoneNumber] = useState('');
+  const [userRole, setUserRole] = useState('');
+  const [processingPayment, setProcessingPayment] = useState(false);
+  const [hasPaid, setHasPaid] = useState(false);
+  const PAYMENT_AMOUNT = 15; // Fixed amount in GHS
+
+  // Load user data on mount
+  useEffect(() => {
+    loadUserData();
+  }, []);
+
+  // Reload user data when screen comes into focus
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadUserData();
+    });
+    return unsubscribe;
+  }, [navigation]);
+
+  const loadUserData = async () => {
+    try {
+      const userDataString = await AsyncStorage.getItem('@user_data');
+      if (userDataString) {
+        const userData = JSON.parse(userDataString);
+        if (userData.full_name) {
+          setUserName(userData.full_name);
+        }
+        if (userData.phone_number) {
+          setUserPhoneNumber(userData.phone_number);
+        }
+        if (userData.role) {
+          setUserRole(userData.role);
+        }
+        if (userData.payment_status !== undefined) {
+          setHasPaid(userData.payment_status === true);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading user data:', error);
+    }
+  };
+
+  const getInitial = () => {
+    if (userName) {
+      return userName.charAt(0).toUpperCase();
+    }
+    return 'U';
+  };
+
+  const getRoleDisplayName = (role) => {
+    if (role === 'course_rep') {
+      return 'Course Representative';
+    } else if (role === 'student') {
+      return 'Student';
+    }
+    return role;
+  };
+
+  const handleLogout = () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Clear authentication data
+              await AsyncStorage.removeItem('@auth_token');
+              await AsyncStorage.removeItem('@user_data');
+              
+              // Reset navigation stack to Welcome screen
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Welcome' }],
+              });
+            } catch (error) {
+              console.error('Error during logout:', error);
+              Alert.alert('Error', 'Failed to logout. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleMakePayment = async () => {
+    setProcessingPayment(true);
+
+    try {
+      const token = await AsyncStorage.getItem('@auth_token');
+      if (!token) {
+        throw new Error('Not authenticated. Please log in again.');
+      }
+
+      // Call payment API
+      const response = await fetch(getApiUrl('auth/payment'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Payment failed. Please try again.');
+      }
+
+      if (data.success && data.data && data.data.user) {
+        // Update user data in AsyncStorage
+        const userDataString = await AsyncStorage.getItem('@user_data');
+        if (userDataString) {
+          const userData = JSON.parse(userDataString);
+          userData.payment_status = true;
+          await AsyncStorage.setItem('@user_data', JSON.stringify(userData));
+        }
+
+        // Update payment status state
+        setHasPaid(true);
+
+        Alert.alert(
+          'Payment Successful',
+          `Your payment of GHS ${PAYMENT_AMOUNT.toFixed(2)} has been processed successfully via Mobile Money. You can now enroll in courses.`,
+          [
+            {
+              text: 'OK',
+            },
+          ]
+        );
+      } else {
+        throw new Error('Payment processing failed.');
+      }
+    } catch (error) {
+      console.error('Payment error:', error);
+      Alert.alert('Error', error.message || 'Payment failed. Please try again.');
+    } finally {
+      setProcessingPayment(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -26,12 +177,12 @@ const SettingsScreen = ({ navigation }) => {
         {/* User Header Card */}
         <View style={styles.profileCard}>
           <View style={styles.avatarCircle}>
-            <Text style={styles.avatarInitial}>A</Text>
+            <Text style={styles.avatarInitial}>{getInitial()}</Text>
           </View>
           <View style={styles.profileInfo}>
-            <Text style={styles.profileName}>agcdjue</Text>
-            <Text style={styles.profileEmail}>agbemaflec918@gmail.com</Text>
-            <Text style={styles.profileRole}>Course Representative</Text>
+            <Text style={styles.profileName}>{userName || 'User'}</Text>
+            <Text style={styles.profileEmail}>{userPhoneNumber || 'No phone number'}</Text>
+            <Text style={styles.profileRole}>{getRoleDisplayName(userRole)}</Text>
           </View>
         </View>
 
@@ -66,6 +217,44 @@ const SettingsScreen = ({ navigation }) => {
           </View>
         </View>
 
+        {/* Payment Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Make Payment</Text>
+
+          <View style={styles.paymentContainer}>
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Amount</Text>
+              <View style={styles.amountDisplay}>
+                <Text style={styles.amountText}>GHS {PAYMENT_AMOUNT.toFixed(2)}</Text>
+              </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <View style={styles.paymentMethodDisplay}>
+                <Ionicons name="phone-portrait-outline" size={20} color="#2563eb" />
+                <Text style={styles.paymentMethodLabel}>Mobile Money</Text>
+              </View>
+            </View>
+
+            {hasPaid ? (
+              <View style={styles.paidStatusContainer}>
+                <View style={styles.paidStatusBadge}>
+                  <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
+                  <Text style={styles.paidStatusText}>Paid</Text>
+                </View>
+              </View>
+            ) : (
+              <Button
+                title={processingPayment ? 'Processing...' : 'Make Payment'}
+                onPress={handleMakePayment}
+                variant="primary"
+                style={styles.paymentButton}
+                disabled={processingPayment}
+              />
+            )}
+          </View>
+        </View>
+
         {/* Support Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Support</Text>
@@ -88,7 +277,7 @@ const SettingsScreen = ({ navigation }) => {
         </View>
 
         {/* Logout Button + Version */}
-        <TouchableOpacity style={styles.logoutButton}>
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
 
@@ -99,7 +288,10 @@ const SettingsScreen = ({ navigation }) => {
       <View style={styles.bottomNav}>
         <TouchableOpacity
           style={styles.navItem}
-          onPress={() => navigation.navigate('CourseRep')}
+          onPress={() => {
+            const homeScreen = userRole === 'course_rep' ? 'CourseRep' : 'StudentHome';
+            navigation.navigate(homeScreen);
+          }}
         >
           <Ionicons name="home-outline" size={24} color="#6b7280" />
           <Text style={styles.navLabel}>Home</Text>
@@ -285,6 +477,72 @@ const styles = StyleSheet.create({
   navLabelActive: {
     color: '#2563eb',
     fontWeight: '600',
+  },
+  paymentContainer: {
+    paddingVertical: 8,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#6b7280',
+    marginBottom: 8,
+  },
+  amountDisplay: {
+    backgroundColor: '#f9fafb',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  amountText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  paymentMethodDisplay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2563eb',
+    backgroundColor: '#eff6ff',
+    gap: 8,
+  },
+  paymentMethodLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#2563eb',
+  },
+  paymentButton: {
+    marginTop: 8,
+    width: '100%',
+  },
+  paidStatusContainer: {
+    marginTop: 8,
+    width: '100%',
+  },
+  paidStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#dcfce7',
+    borderWidth: 1,
+    borderColor: '#22c55e',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  paidStatusText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#16a34a',
   },
 });
 

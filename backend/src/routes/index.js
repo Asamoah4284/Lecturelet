@@ -10,7 +10,7 @@ const router = express.Router();
 router.get('/health', (req, res) => {
   res.json({
     success: true,
-    message: 'LecturerLet API is running',
+    message: 'LectureLet API is running',
     timestamp: new Date().toISOString(),
   });
 });
@@ -22,4 +22,6 @@ router.use('/enrollments', enrollmentRoutes);
 router.use('/notifications', notificationRoutes);
 
 module.exports = router;
+
+
 

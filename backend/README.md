@@ -1,6 +1,6 @@
-# LecturerLet Backend API
+# LectureLet Backend API
 
-A Node.js/Express backend for the LecturerLet university course management mobile application.
+A Node.js/Express backend for the LectureLet university course management mobile application.
 
 ## 🚀 Getting Started
 
@@ -36,7 +36,7 @@ A Node.js/Express backend for the LecturerLet university course management mobil
    NODE_ENV=development
    JWT_SECRET=your-super-secret-key-change-this
    JWT_EXPIRES_IN=7d
-   DATABASE_PATH=./data/lecturerlet.db
+   DATABASE_PATH=./data/LectureLet.db
    ```
 
 5. Start the server:

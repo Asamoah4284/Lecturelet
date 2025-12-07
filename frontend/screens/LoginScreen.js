@@ -9,17 +9,76 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Button from '../components/Button';
+import { getApiUrl } from '../config/api';
 
 const LoginScreen = ({ navigation }) => {
-  const [email, setEmail] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleLogIn = () => {
-    // After log in, go to role selection
-    navigation.replace('RoleSelect');
+  const handleLogIn = async () => {
+    setError('');
+
+    // Validate inputs
+    if (!phoneNumber.trim()) {
+      setError('Phone number is required');
+      return;
+    }
+    if (!password) {
+      setError('Password is required');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const response = await fetch(getApiUrl('auth/login'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          phoneNumber: phoneNumber.trim(),
+          password,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Login failed. Please try again.');
+      }
+
+      if (data.success && data.data) {
+        // Store token and user data
+        await AsyncStorage.setItem('@auth_token', data.data.token);
+        await AsyncStorage.setItem('@user_data', JSON.stringify(data.data.user));
+
+        // Reset navigation stack to prevent going back to login/signup
+        const userRole = data.data.user.role;
+        const targetScreen = userRole === 'course_rep' ? 'CourseRep' : 'StudentHome';
+        
+        navigation.reset({
+          index: 0,
+          routes: [{ name: targetScreen }],
+        });
+      } else {
+        throw new Error(data.message || 'Login failed. Please try again.');
+      }
+    } catch (err) {
+      setError(err.message || 'An error occurred. Please try again.');
+      Alert.alert('Login Failed', err.message || 'An error occurred. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -51,16 +110,25 @@ const LoginScreen = ({ navigation }) => {
 
           {/* Form */}
           <View style={styles.form}>
+            {error ? (
+              <View style={styles.errorContainer}>
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            ) : null}
+
             <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Email</Text>
+              <Text style={styles.label}>Phone Number</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Enter your email"
+                placeholder="Enter your phone number"
                 placeholderTextColor="#9ca3af"
-                autoCapitalize="none"
-                keyboardType="email-address"
-                value={email}
-                onChangeText={setEmail}
+                keyboardType="phone-pad"
+                value={phoneNumber}
+                onChangeText={(text) => {
+                  setPhoneNumber(text);
+                  setError('');
+                }}
+                editable={!loading}
               />
             </View>
 
@@ -71,21 +139,39 @@ const LoginScreen = ({ navigation }) => {
                   <Text style={styles.forgotPassword}>Forgot password?</Text>
                 </TouchableOpacity>
               </View>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your password"
-                placeholderTextColor="#9ca3af"
-                secureTextEntry
-                value={password}
-                onChangeText={setPassword}
-              />
+              <View style={styles.passwordInputContainer}>
+                <TextInput
+                  style={styles.passwordInput}
+                  placeholder="Enter your password"
+                  placeholderTextColor="#9ca3af"
+                  secureTextEntry={!showPassword}
+                  value={password}
+                  onChangeText={(text) => {
+                    setPassword(text);
+                    setError('');
+                  }}
+                  editable={!loading}
+                />
+                <TouchableOpacity
+                  style={styles.eyeIcon}
+                  onPress={() => setShowPassword(!showPassword)}
+                  disabled={loading}
+                >
+                  <Ionicons
+                    name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+                    size={20}
+                    color="#6b7280"
+                  />
+                </TouchableOpacity>
+              </View>
             </View>
 
             <Button
-              title="Log In"
+              title={loading ? 'Logging In...' : 'Log In'}
               onPress={handleLogIn}
               variant="primary"
               style={styles.logInButton}
+              disabled={loading}
             />
 
             <TouchableOpacity
@@ -195,6 +281,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#111827',
   },
+  passwordInputContainer: {
+    position: 'relative',
+  },
+  passwordInput: {
+    height: 44,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingRight: 40,
+    backgroundColor: '#f9fafb',
+    fontSize: 14,
+    color: '#111827',
+  },
+  eyeIcon: {
+    position: 'absolute',
+    right: 12,
+    top: 12,
+    padding: 4,
+  },
   logInButton: {
     marginTop: 8,
     marginBottom: 12,
@@ -210,6 +314,17 @@ const styles = StyleSheet.create({
   signupLink: {
     color: '#2563eb',
     fontWeight: '600',
+  },
+  errorContainer: {
+    backgroundColor: '#fee2e2',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  errorText: {
+    color: '#dc2626',
+    fontSize: 13,
+    textAlign: 'center',
   },
 });
 

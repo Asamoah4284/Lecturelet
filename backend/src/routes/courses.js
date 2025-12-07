@@ -1,6 +1,6 @@
 const express = require('express');
 const { body, param, query } = require('express-validator');
-const { Course, Enrollment, Notification } = require('../models');
+const { Course, Enrollment, Notification, User } = require('../models');
 const { authenticate, authorize } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 
@@ -27,19 +27,19 @@ router.post(
     body('days')
       .notEmpty()
       .withMessage('At least one lecture day is required'),
+    body('dayTimes').optional(),
     body('startTime')
-      .trim()
-      .notEmpty()
-      .withMessage('Start time is required'),
+      .optional()
+      .trim(),
     body('endTime')
-      .trim()
-      .notEmpty()
-      .withMessage('End time is required'),
+      .optional()
+      .trim(),
     body('venue').optional().trim(),
     body('creditHours').optional().trim(),
     body('indexFrom').optional().trim(),
     body('indexTo').optional().trim(),
     body('courseRepName').optional().trim(),
+    body('allowedPhoneNumbers').optional().isArray(),
   ],
   validate,
   async (req, res) => {
@@ -48,6 +48,7 @@ router.post(
         courseName,
         courseCode,
         days,
+        dayTimes,
         startTime,
         endTime,
         venue,
@@ -55,24 +56,45 @@ router.post(
         indexFrom,
         indexTo,
         courseRepName,
+        allowedPhoneNumbers,
       } = req.body;
 
-      // Generate unique code
+      // Generate unique 5-digit code
       const uniqueCode = await Course.generateUniqueCode();
+
+      // Use dayTimes if provided, otherwise fall back to single startTime/endTime
+      let courseStartTime = startTime;
+      let courseEndTime = endTime;
+      
+      if (dayTimes && Object.keys(dayTimes).length > 0) {
+        // Use first day's time for backward compatibility
+        const firstDay = Array.isArray(days) ? days[0] : days;
+        if (dayTimes[firstDay]) {
+          courseStartTime = dayTimes[firstDay].startTime;
+          courseEndTime = dayTimes[firstDay].endTime;
+        }
+      }
+
+      // Normalize phone numbers - trim and ensure they're strings
+      const normalizedPhoneNumbers = allowedPhoneNumbers && Array.isArray(allowedPhoneNumbers)
+        ? allowedPhoneNumbers.map(num => String(num).trim()).filter(num => num.length > 0)
+        : [];
 
       const course = await Course.create({
         uniqueCode,
         courseName,
         courseCode,
         days: Array.isArray(days) ? days : [days],
-        startTime,
-        endTime,
+        startTime: courseStartTime,
+        endTime: courseEndTime,
+        dayTimes: dayTimes || {},
         venue,
         creditHours,
         indexFrom,
         indexTo,
         courseRepName: courseRepName || req.user.full_name,
         createdBy: req.user.id,
+        allowedPhoneNumbers: normalizedPhoneNumbers,
       });
 
       res.status(201).json({
@@ -193,7 +215,7 @@ router.get(
   [
     param('uniqueCode')
       .trim()
-      .isLength({ min: 6, max: 6 })
+      .isLength({ min: 5, max: 5 })
       .withMessage('Invalid course code format'),
   ],
   validate,
@@ -317,6 +339,7 @@ router.put(
         courseName,
         courseCode,
         days,
+        dayTimes,
         startTime,
         endTime,
         venue,
@@ -324,19 +347,72 @@ router.put(
         indexFrom,
         indexTo,
         courseRepName,
+        editType, // 'temporary' or 'permanent'
       } = req.body;
 
       const updateData = {};
       if (courseName !== undefined) updateData.courseName = courseName;
       if (courseCode !== undefined) updateData.courseCode = courseCode;
       if (days !== undefined) updateData.days = Array.isArray(days) ? days : [days];
-      if (startTime !== undefined) updateData.startTime = startTime;
-      if (endTime !== undefined) updateData.endTime = endTime;
+      
+      // Handle dayTimes - if provided, use it; otherwise use single startTime/endTime
+      if (dayTimes !== undefined && Object.keys(dayTimes).length > 0) {
+        updateData.dayTimes = dayTimes;
+        // Also update startTime/endTime for backward compatibility (use first day's time)
+        const firstDay = Array.isArray(days) ? days[0] : days;
+        if (dayTimes[firstDay]) {
+          updateData.startTime = dayTimes[firstDay].startTime;
+          updateData.endTime = dayTimes[firstDay].endTime;
+        }
+      } else {
+        if (startTime !== undefined) updateData.startTime = startTime;
+        if (endTime !== undefined) updateData.endTime = endTime;
+      }
+      
       if (venue !== undefined) updateData.venue = venue;
       if (creditHours !== undefined) updateData.creditHours = creditHours;
       if (indexFrom !== undefined) updateData.indexFrom = indexFrom;
       if (indexTo !== undefined) updateData.indexTo = indexTo;
       if (courseRepName !== undefined) updateData.courseRepName = courseRepName;
+      if (allowedPhoneNumbers !== undefined) {
+        // Normalize phone numbers - trim and ensure they're strings
+        updateData.allowedPhoneNumbers = Array.isArray(allowedPhoneNumbers)
+          ? allowedPhoneNumbers.map(num => String(num).trim()).filter(num => num.length > 0)
+          : [];
+      }
+
+      // Handle temporary vs permanent edits
+      if (editType === 'temporary') {
+        // Get current course to save as original values
+        const currentCourse = await Course.findById(courseId);
+        if (currentCourse) {
+          // Save current values as original (only if not already saved)
+          // If originalValues already exists, keep it (don't overwrite)
+          if (!currentCourse.originalValues) {
+            updateData.originalValues = {
+              courseName: currentCourse.courseName,
+              courseCode: currentCourse.courseCode,
+              days: currentCourse.days,
+              startTime: currentCourse.startTime,
+              endTime: currentCourse.endTime,
+              dayTimes: currentCourse.dayTimes,
+              venue: currentCourse.venue,
+              creditHours: currentCourse.creditHours,
+              indexFrom: currentCourse.indexFrom,
+              indexTo: currentCourse.indexTo,
+              courseRepName: currentCourse.courseRepName,
+            };
+          }
+          // Set expiration to 24 hours from now
+          const expirationDate = new Date();
+          expirationDate.setHours(expirationDate.getHours() + 24);
+          updateData.temporaryEditExpiresAt = expirationDate;
+        }
+      } else {
+        // Permanent edit - clear temporary edit fields and apply changes permanently
+        updateData.temporaryEditExpiresAt = null;
+        updateData.originalValues = null;
+      }
 
       const course = await Course.findByIdAndUpdate(courseId, updateData, { new: true });
 
@@ -447,6 +523,154 @@ router.get(
       res.status(500).json({
         success: false,
         message: 'Failed to fetch students',
+      });
+    }
+  }
+);
+
+/**
+ * @route   POST /api/courses/:id/students
+ * @desc    Add a student to a course by phone number (Creator only)
+ * @access  Private (course_rep)
+ */
+router.post(
+  '/:id/students',
+  authenticate,
+  authorize('course_rep'),
+  [
+    body('phoneNumber')
+      .trim()
+      .notEmpty()
+      .withMessage('Phone number is required'),
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      const courseId = req.params.id;
+      const { phoneNumber } = req.body;
+
+      // Check if user is creator
+      if (!(await Course.isCreator(courseId, req.user.id))) {
+        return res.status(403).json({
+          success: false,
+          message: 'You can only add students to courses you created',
+        });
+      }
+
+      // Find student by phone number
+      const student = await User.findOne({ 
+        phoneNumber: phoneNumber.trim(),
+        role: 'student'
+      });
+
+      if (!student) {
+        return res.status(404).json({
+          success: false,
+          message: 'Student not found with this phone number',
+        });
+      }
+
+      // Check if already enrolled
+      if (await Enrollment.isEnrolled(student._id, courseId)) {
+        return res.status(409).json({
+          success: false,
+          message: 'Student is already enrolled in this course',
+        });
+      }
+
+      // Enroll student
+      await Enrollment.enroll(student._id, courseId);
+
+      // Get course for notification
+      const course = await Course.findById(courseId);
+
+      // Send notification to student
+      await Notification.create({
+        userId: student._id,
+        title: 'Course Enrollment',
+        message: `You have been enrolled in ${course.courseName}`,
+        type: 'announcement',
+        courseId: courseId,
+      });
+
+      res.status(201).json({
+        success: true,
+        message: `Successfully added ${student.full_name} to the course`,
+        data: {
+          student: {
+            id: student._id,
+            full_name: student.full_name,
+            phone_number: student.phoneNumber,
+            student_id: student.studentId,
+          },
+        },
+      });
+    } catch (error) {
+      console.error('Add student to course error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to add student to course',
+      });
+    }
+  }
+);
+
+/**
+ * @route   DELETE /api/courses/:id/students/:studentId
+ * @desc    Remove a student from a course (Creator only)
+ * @access  Private (course_rep)
+ */
+router.delete(
+  '/:id/students/:studentId',
+  authenticate,
+  authorize('course_rep'),
+  async (req, res) => {
+    try {
+      const { id: courseId, studentId } = req.params;
+
+      // Check if user is creator
+      if (!(await Course.isCreator(courseId, req.user.id))) {
+        return res.status(403).json({
+          success: false,
+          message: 'You can only remove students from courses you created',
+        });
+      }
+
+      // Check if student is enrolled
+      if (!(await Enrollment.isEnrolled(studentId, courseId))) {
+        return res.status(404).json({
+          success: false,
+          message: 'Student is not enrolled in this course',
+        });
+      }
+
+      // Remove enrollment
+      await Enrollment.unenroll(studentId, courseId);
+
+      // Get course and student for notification
+      const course = await Course.findById(courseId);
+      const student = await User.findById(studentId);
+
+      // Send notification to student
+      if (student) {
+        await Notification.create({
+          userId: studentId,
+          title: 'Course Unenrollment',
+          message: `You have been removed from ${course.courseName}`,
+          type: 'announcement',
+          courseId: courseId,
+        });
+      }
+
+      res.json({
+        success: true,
+        message: 'Student removed from course successfully',
+      });
+    } catch (error) {
+      console.error('Remove student from course error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to remove student from course',
       });
     }
   }

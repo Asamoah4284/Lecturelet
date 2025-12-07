@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,12 +9,15 @@ import {
   TouchableOpacity,
   Alert,
   Platform,
+  Modal,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Button from '../components/Button';
-import CourseContext from '../context/CourseContext';
+import { getApiUrl } from '../config/api';
 
 const DAYS = [
   'Monday',
@@ -29,27 +32,81 @@ const DAYS = [
 const DAY_ABBREVIATIONS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 const AddCourseScreen = ({ navigation, route }) => {
-  const { addCourse, updateCourse } = useContext(CourseContext);
   const editingCourse = route.params?.course;
+  const insets = useSafeAreaInsets();
+  const [loading, setLoading] = useState(false);
+  const [showCodeModal, setShowCodeModal] = useState(false);
+  const [generatedCode, setGeneratedCode] = useState('');
+  const [editType, setEditType] = useState('permanent'); // 'temporary' or 'permanent'
 
-  const [courseName, setCourseName] = useState(editingCourse?.courseName || '');
-  const [courseCode, setCourseCode] = useState(editingCourse?.courseCode || '');
-  const [selectedDays, setSelectedDays] = useState(
-    editingCourse?.days || (editingCourse?.day ? [editingCourse.day] : [])
-  );
-  const [startTime, setStartTime] = useState(editingCourse?.startTime || '');
-  const [endTime, setEndTime] = useState(editingCourse?.endTime || '');
-  const [venue, setVenue] = useState(editingCourse?.venue || editingCourse?.location || '');
-  const [creditHours, setCreditHours] = useState(editingCourse?.creditHours || '');
-  const [indexFrom, setIndexFrom] = useState(editingCourse?.indexFrom || '');
-  const [indexTo, setIndexTo] = useState(editingCourse?.indexTo || '');
-  const [courseRepresentativeName, setCourseRepresentativeName] = useState(
-    editingCourse?.courseRepresentativeName || ''
-  );
+  // Helper to get field value handling both camelCase and snake_case
+  const getField = (camelCase, snakeCase) => {
+    return editingCourse?.[camelCase] || editingCourse?.[snakeCase] || '';
+  };
+
+  const [courseName, setCourseName] = useState(getField('courseName', 'course_name'));
+  const [courseCode, setCourseCode] = useState(getField('courseCode', 'course_code'));
+  const [selectedDays, setSelectedDays] = useState(() => {
+    const days = editingCourse?.days || (editingCourse?.day ? [editingCourse.day] : []);
+    return Array.isArray(days) ? days : [];
+  });
   
-  // Time picker states
-  const [showStartPicker, setShowStartPicker] = useState(false);
-  const [showEndPicker, setShowEndPicker] = useState(false);
+  // Store times per day: { Monday: { startTime: '9:00 AM', endTime: '10:30 AM' }, ... }
+  const [dayTimes, setDayTimes] = useState(() => {
+    // Check for dayTimes first (from backend as day_times or dayTimes)
+    if (editingCourse?.dayTimes && Object.keys(editingCourse.dayTimes).length > 0) {
+      return editingCourse.dayTimes;
+    }
+    if (editingCourse?.day_times && Object.keys(editingCourse.day_times).length > 0) {
+      return editingCourse.day_times;
+    }
+    // For backward compatibility, if there's a single startTime/endTime, use it for all days
+    const startTime = editingCourse?.startTime || editingCourse?.start_time;
+    const endTime = editingCourse?.endTime || editingCourse?.end_time;
+    if (startTime && endTime) {
+      const times = {};
+      const days = editingCourse?.days || (editingCourse?.day ? [editingCourse.day] : []);
+      if (Array.isArray(days) && days.length > 0) {
+        days.forEach(day => {
+          times[day] = {
+            startTime: startTime,
+            endTime: endTime,
+          };
+        });
+      }
+      return times;
+    }
+    return {};
+  });
+  
+  const [venue, setVenue] = useState(
+    editingCourse?.venue || editingCourse?.location || ''
+  );
+  const [creditHours, setCreditHours] = useState(
+    getField('creditHours', 'credit_hours')
+  );
+  const [indexFrom, setIndexFrom] = useState(
+    getField('indexFrom', 'index_from')
+  );
+  const [indexTo, setIndexTo] = useState(
+    getField('indexTo', 'index_to')
+  );
+  const [courseRepresentativeName, setCourseRepresentativeName] = useState(
+    getField('courseRepresentativeName', 'course_rep_name')
+  );
+  const [allowedPhoneNumbers, setAllowedPhoneNumbers] = useState(() => {
+    // Load from editing course if available
+    const numbers = editingCourse?.allowed_phone_numbers || editingCourse?.allowedPhoneNumbers || [];
+    return Array.isArray(numbers) ? numbers : [];
+  });
+  const [phoneNumberInput, setPhoneNumberInput] = useState('');
+  
+  // Time picker states - track which day and which time (start/end) is being edited
+  const [timePickerState, setTimePickerState] = useState({
+    show: false,
+    day: null,
+    type: null, // 'start' or 'end'
+  });
   
   const parseTime = (timeString) => {
     if (!timeString) return null;
@@ -72,48 +129,115 @@ const AddCourseScreen = ({ navigation, route }) => {
     }
     return null;
   };
-  
-  const [startTimeDate, setStartTimeDate] = useState(() => {
-    if (editingCourse?.startTime) {
-      const parsed = parseTime(editingCourse.startTime);
+
+  const getTimeDate = (day, type) => {
+    const timeString = dayTimes[day]?.[type === 'start' ? 'startTime' : 'endTime'];
+    if (timeString) {
+      const parsed = parseTime(timeString);
       if (parsed) return parsed;
     }
+    // Default times
+    const date = new Date();
+    if (type === 'start') {
+      date.setHours(9, 0, 0, 0);
+    } else {
+      date.setHours(10, 30, 0, 0);
+    }
+    return date;
+  };
+  
+  const [currentTimeDate, setCurrentTimeDate] = useState(() => {
     const date = new Date();
     date.setHours(9, 0, 0, 0);
     return date;
   });
-  const [endTimeDate, setEndTimeDate] = useState(() => {
-    if (editingCourse?.endTime) {
-      const parsed = parseTime(editingCourse.endTime);
-      if (parsed) return parsed;
-    }
-    const date = new Date();
-    date.setHours(10, 30, 0, 0);
-    return date;
-  });
-  
-  // Initialize displayed time from dates if not already set
-  useEffect(() => {
-    if (!startTime && startTimeDate) {
-      setStartTime(formatTime(startTimeDate));
-    }
-    if (!endTime && endTimeDate) {
-      setEndTime(formatTime(endTimeDate));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   useEffect(() => {
     if (editingCourse) {
       navigation.setOptions({ title: 'Edit Course' });
+      
+      // Update form fields when editingCourse is available
+      setCourseName(editingCourse.courseName || editingCourse.course_name || '');
+      setCourseCode(editingCourse.courseCode || editingCourse.course_code || '');
+      
+      const days = editingCourse.days || (editingCourse.day ? [editingCourse.day] : []);
+      setSelectedDays(Array.isArray(days) ? days : []);
+      
+      // Update dayTimes - check for day_times (backend format) or dayTimes
+      if (editingCourse.dayTimes && Object.keys(editingCourse.dayTimes).length > 0) {
+        setDayTimes(editingCourse.dayTimes);
+      } else if (editingCourse.day_times && Object.keys(editingCourse.day_times).length > 0) {
+        setDayTimes(editingCourse.day_times);
+      } else {
+        // For backward compatibility, if there's a single startTime/endTime, use it for all days
+        const startTime = editingCourse.startTime || editingCourse.start_time;
+        const endTime = editingCourse.endTime || editingCourse.end_time;
+        if (startTime && endTime && Array.isArray(days) && days.length > 0) {
+          const times = {};
+          days.forEach(day => {
+            times[day] = {
+              startTime: startTime,
+              endTime: endTime,
+            };
+          });
+          setDayTimes(times);
+        }
+      }
+      
+      setVenue(editingCourse.venue || editingCourse.location || '');
+      setCreditHours(editingCourse.creditHours || editingCourse.credit_hours || '');
+      setIndexFrom(editingCourse.indexFrom || editingCourse.index_from || '');
+      setIndexTo(editingCourse.indexTo || editingCourse.index_to || '');
+      setCourseRepresentativeName(
+        editingCourse.courseRepresentativeName || 
+        editingCourse.courseRepName || 
+        editingCourse.course_rep_name ||
+        editingCourse.courseRepName ||
+        ''
+      );
     }
-  }, [editingCourse]);
+  }, [editingCourse, navigation]);
 
   const toggleDay = (dayIndex) => {
     const day = DAYS[dayIndex];
-    setSelectedDays((prev) =>
-      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
-    );
+    setSelectedDays((prev) => {
+      if (prev.includes(day)) {
+        // Remove day and its times
+        const newDays = prev.filter((d) => d !== day);
+        setDayTimes((prevTimes) => {
+          const newTimes = { ...prevTimes };
+          delete newTimes[day];
+          return newTimes;
+        });
+        return newDays;
+      } else {
+        // Add day - use existing time if available, otherwise use default
+        const newDays = [...prev, day];
+        setDayTimes((prevTimes) => {
+          // If day already has times, keep them; otherwise use default or first day's time
+          if (prevTimes[day] && prevTimes[day].startTime && prevTimes[day].endTime) {
+            return prevTimes; // Day already has times
+          }
+          
+          // Try to use first selected day's time as default, or use hardcoded default
+          const defaultStart = prev.length > 0 && prevTimes[prev[0]]?.startTime 
+            ? prevTimes[prev[0]].startTime 
+            : '9:00 AM';
+          const defaultEnd = prev.length > 0 && prevTimes[prev[0]]?.endTime 
+            ? prevTimes[prev[0]].endTime 
+            : '10:30 AM';
+          
+          return {
+            ...prevTimes,
+            [day]: {
+              startTime: defaultStart,
+              endTime: defaultEnd,
+            },
+          };
+        });
+        return newDays;
+      }
+    });
   };
 
   const formatTime = (date) => {
@@ -126,33 +250,37 @@ const AddCourseScreen = ({ navigation, route }) => {
     return `${hours}:${minutesStr} ${ampm}`;
   };
 
-  const handleStartTimeChange = (event, selectedDate) => {
-    if (Platform.OS === 'android') {
-      setShowStartPicker(false);
-    }
-    if (selectedDate) {
-      setStartTimeDate(selectedDate);
-      setStartTime(formatTime(selectedDate));
-      if (Platform.OS === 'ios') {
-        setShowStartPicker(false);
-      }
-    } else if (Platform.OS === 'ios') {
-      setShowStartPicker(false);
-    }
+  const openTimePicker = (day, type) => {
+    const timeDate = getTimeDate(day, type);
+    setCurrentTimeDate(timeDate);
+    setTimePickerState({
+      show: true,
+      day,
+      type,
+    });
   };
 
-  const handleEndTimeChange = (event, selectedDate) => {
+  const handleTimeChange = (event, selectedDate) => {
     if (Platform.OS === 'android') {
-      setShowEndPicker(false);
+      setTimePickerState({ show: false, day: null, type: null });
     }
-    if (selectedDate) {
-      setEndTimeDate(selectedDate);
-      setEndTime(formatTime(selectedDate));
+    if (selectedDate && timePickerState.day && timePickerState.type) {
+      const formattedTime = formatTime(selectedDate);
+      setDayTimes((prev) => {
+        const day = timePickerState.day;
+        return {
+          ...prev,
+          [day]: {
+            ...prev[day],
+            [timePickerState.type === 'start' ? 'startTime' : 'endTime']: formattedTime,
+          },
+        };
+      });
       if (Platform.OS === 'ios') {
-        setShowEndPicker(false);
+        setTimePickerState({ show: false, day: null, type: null });
       }
     } else if (Platform.OS === 'ios') {
-      setShowEndPicker(false);
+      setTimePickerState({ show: false, day: null, type: null });
     }
   };
 
@@ -169,15 +297,68 @@ const AddCourseScreen = ({ navigation, route }) => {
       Alert.alert('Validation Error', 'Please select at least one lecture day');
       return false;
     }
-    if (!startTime.trim()) {
-      Alert.alert('Validation Error', 'Please enter a start time');
-      return false;
-    }
-    if (!endTime.trim()) {
-      Alert.alert('Validation Error', 'Please enter an end time');
-      return false;
+    // Validate that each selected day has times
+    for (const day of selectedDays) {
+      const dayTime = dayTimes[day];
+      if (!dayTime || !dayTime.startTime || !dayTime.endTime) {
+        Alert.alert('Validation Error', `Please set times for ${day}`);
+        return false;
+      }
     }
     return true;
+  };
+
+  const copyToClipboard = (text) => {
+    // The code is selectable, so users can long-press to copy
+    // Show a message to guide them
+    Alert.alert('Copy Code', `Course Code: ${text}\n\nLong press the code above to copy it.`, [
+      { text: 'OK' }
+    ]);
+  };
+
+  const handleAddPhoneNumber = () => {
+    const trimmed = phoneNumberInput.trim();
+    if (!trimmed) {
+      Alert.alert('Validation Error', 'Please enter a phone number');
+      return;
+    }
+
+    // Parse comma-separated phone numbers
+    const phoneNumbers = trimmed
+      .split(',')
+      .map(num => num.trim())
+      .filter(num => num.length > 0);
+
+    if (phoneNumbers.length === 0) {
+      Alert.alert('Validation Error', 'Please enter at least one phone number');
+      return;
+    }
+
+    // Add new phone numbers (skip duplicates)
+    const newNumbers = phoneNumbers.filter(num => !allowedPhoneNumbers.includes(num));
+    const duplicates = phoneNumbers.filter(num => allowedPhoneNumbers.includes(num));
+
+    if (newNumbers.length > 0) {
+      setAllowedPhoneNumbers([...allowedPhoneNumbers, ...newNumbers]);
+    }
+
+    if (duplicates.length > 0) {
+      Alert.alert(
+        'Duplicate Numbers',
+        `The following numbers were already added: ${duplicates.join(', ')}`
+      );
+    } else if (newNumbers.length > 0) {
+      // Show success message if multiple numbers were added
+      if (newNumbers.length > 1) {
+        Alert.alert('Success', `Added ${newNumbers.length} phone numbers`);
+      }
+    }
+
+    setPhoneNumberInput('');
+  };
+
+  const handleRemovePhoneNumber = (phoneNumber) => {
+    setAllowedPhoneNumbers(allowedPhoneNumbers.filter(num => num !== phoneNumber));
   };
 
   const handleSave = async () => {
@@ -185,35 +366,86 @@ const AddCourseScreen = ({ navigation, route }) => {
       return;
     }
 
-    const courseData = {
-      courseName: courseName.trim(),
-      courseCode: courseCode.trim(),
-      days: selectedDays,
-      day: selectedDays[0], // Keep for backward compatibility
-      startTime: startTime.trim(),
-      endTime: endTime.trim(),
-      location: venue.trim(),
-      venue: venue.trim(),
-      creditHours: creditHours.trim(),
-      indexFrom: indexFrom.trim(),
-      indexTo: indexTo.trim(),
-      courseRepresentativeName: courseRepresentativeName.trim(),
-    };
+    setLoading(true);
 
     try {
+      // Get auth token
+      const token = await AsyncStorage.getItem('@auth_token');
+      if (!token) {
+        Alert.alert('Error', 'Not authenticated. Please log in again.');
+        navigation.navigate('Login');
+        return;
+      }
+
+      // Get first day's time for backward compatibility
+      const firstDay = selectedDays[0];
+      const firstDayTime = dayTimes[firstDay] || { startTime: '', endTime: '' };
+
+      const courseData = {
+        courseName: courseName.trim(),
+        courseCode: courseCode.trim(),
+        days: selectedDays,
+        dayTimes: dayTimes, // New structure with times per day
+        startTime: firstDayTime.startTime, // Keep for backward compatibility
+        endTime: firstDayTime.endTime, // Keep for backward compatibility
+        venue: venue.trim(),
+        creditHours: creditHours.trim(),
+        indexFrom: indexFrom.trim(),
+        indexTo: indexTo.trim(),
+        courseRepName: courseRepresentativeName.trim(),
+        ...(editingCourse && { editType }), // Include edit type when editing
+        allowedPhoneNumbers, // Include allowed phone numbers for both create and update
+      };
+
       if (editingCourse) {
-        await updateCourse(editingCourse.id, courseData);
+        // Update existing course
+        const response = await fetch(getApiUrl(`courses/${editingCourse.id}`), {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify(courseData),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.message || 'Failed to update course');
+        }
+
         Alert.alert('Success', 'Course updated successfully', [
           { text: 'OK', onPress: () => navigation.goBack() },
         ]);
       } else {
-        await addCourse(courseData);
-        Alert.alert('Success', 'Course added successfully', [
-          { text: 'OK', onPress: () => navigation.goBack() },
-        ]);
+        // Create new course
+        const response = await fetch(getApiUrl('courses'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify(courseData),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.message || 'Failed to create course');
+        }
+
+        if (data.success && data.data?.course) {
+          const uniqueCode = data.data.course.unique_code || data.data.course.uniqueCode;
+          setGeneratedCode(uniqueCode);
+          setShowCodeModal(true);
+        } else {
+          throw new Error('Failed to create course');
+        }
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to save course. Please try again.');
+      Alert.alert('Error', error.message || 'Failed to save course. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -222,7 +454,7 @@ const AddCourseScreen = ({ navigation, route }) => {
       <StatusBar style="light" />
       
       {/* Blue Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 24) }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#ffffff" />
         </TouchableOpacity>
@@ -271,51 +503,6 @@ const AddCourseScreen = ({ navigation, route }) => {
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Time Range</Text>
-            <View style={styles.timeRangeContainer}>
-              <TouchableOpacity
-                style={styles.timeField}
-                onPress={() => setShowStartPicker(true)}
-              >
-                <Ionicons name="time-outline" size={20} color="#6b7280" />
-                <Text style={[styles.timeFieldText, !startTime && styles.timeFieldPlaceholder]}>
-                  {startTime || 'Start time'}
-                </Text>
-                <Ionicons name="chevron-down" size={20} color="#9ca3af" />
-              </TouchableOpacity>
-              <Text style={styles.timeSeparator}>-</Text>
-              <TouchableOpacity
-                style={styles.timeField}
-                onPress={() => setShowEndPicker(true)}
-              >
-                <Ionicons name="time-outline" size={20} color="#6b7280" />
-                <Text style={[styles.timeFieldText, !endTime && styles.timeFieldPlaceholder]}>
-                  {endTime || 'End time'}
-                </Text>
-                <Ionicons name="chevron-down" size={20} color="#9ca3af" />
-              </TouchableOpacity>
-            </View>
-            {showStartPicker && (
-              <DateTimePicker
-                value={startTimeDate}
-                mode="time"
-                is24Hour={false}
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                onChange={handleStartTimeChange}
-              />
-            )}
-            {showEndPicker && (
-              <DateTimePicker
-                value={endTimeDate}
-                mode="time"
-                is24Hour={false}
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                onChange={handleEndTimeChange}
-              />
-            )}
-          </View>
-
-          <View style={styles.inputGroup}>
             <Text style={styles.label}>Lecture Days</Text>
             <View style={styles.daysGrid}>
               {DAY_ABBREVIATIONS.map((dayAbbr, index) => {
@@ -343,6 +530,61 @@ const AddCourseScreen = ({ navigation, route }) => {
               })}
             </View>
           </View>
+
+          {/* Time selection for each selected day */}
+          {selectedDays.length > 0 && (
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Time Range for Each Day</Text>
+              {selectedDays.map((day) => {
+                const dayTime = dayTimes[day] || { startTime: '', endTime: '' };
+                return (
+                  <View key={day} style={styles.dayTimeContainer}>
+                    <Text style={styles.dayTimeLabel}>{day}</Text>
+                    <View style={styles.timeRangeContainer}>
+                      <TouchableOpacity
+                        style={styles.timeField}
+                        onPress={() => openTimePicker(day, 'start')}
+                      >
+                        <Ionicons name="time-outline" size={18} color="#6b7280" />
+                        <Text 
+                          style={[styles.timeFieldText, !dayTime.startTime && styles.timeFieldPlaceholder]}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        >
+                          {dayTime.startTime || 'Start time'}
+                        </Text>
+                        <Ionicons name="chevron-down" size={18} color="#9ca3af" />
+                      </TouchableOpacity>
+                      <Text style={styles.timeSeparator}>-</Text>
+                      <TouchableOpacity
+                        style={styles.timeField}
+                        onPress={() => openTimePicker(day, 'end')}
+                      >
+                        <Ionicons name="time-outline" size={18} color="#6b7280" />
+                        <Text 
+                          style={[styles.timeFieldText, !dayTime.endTime && styles.timeFieldPlaceholder]}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        >
+                          {dayTime.endTime || 'End time'}
+                        </Text>
+                        <Ionicons name="chevron-down" size={18} color="#9ca3af" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })}
+              {timePickerState.show && (
+                <DateTimePicker
+                  value={currentTimeDate}
+                  mode="time"
+                  is24Hour={false}
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  onChange={handleTimeChange}
+                />
+              )}
+            </View>
+          )}
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Venue</Text>
@@ -373,22 +615,20 @@ const AddCourseScreen = ({ navigation, route }) => {
               <View style={[styles.inputGroup, styles.indexInput]}>
                 <Text style={styles.label}>From</Text>
                 <TextInput
-                  style={styles.input}
-                  placeholder="e.g., 1"
+                  style={styles.indexInputField}
+                  placeholder="e.g., PS/CSC/23/001"
                   value={indexFrom}
                   onChangeText={setIndexFrom}
-                  keyboardType="numeric"
                   placeholderTextColor="#9ca3af"
                 />
               </View>
               <View style={[styles.inputGroup, styles.indexInput]}>
                 <Text style={styles.label}>To</Text>
                 <TextInput
-                  style={styles.input}
-                  placeholder="e.g., 13"
+                  style={styles.indexInputField}
+                  placeholder="e.g., PS/CSC/23/300"
                   value={indexTo}
                   onChangeText={setIndexTo}
-                  keyboardType="numeric"
                   placeholderTextColor="#9ca3af"
                 />
               </View>
@@ -399,21 +639,164 @@ const AddCourseScreen = ({ navigation, route }) => {
             <Text style={styles.label}>Course Representative Name</Text>
             <TextInput
               style={styles.input}
-              placeholder="e.g., gt"
+              placeholder="e.g., Evans Ansah"
               value={courseRepresentativeName}
               onChangeText={setCourseRepresentativeName}
               placeholderTextColor="#9ca3af"
             />
           </View>
 
+          {/* Allowed Phone Numbers */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Allowed Phone Numbers {!editingCourse && '(Optional)'}</Text>
+            <Text style={styles.phoneNumberDescription}>
+              {!editingCourse 
+                ? 'Add phone numbers of students who has made payment. You can paste multiple numbers separated by commas.'
+                : 'Manage phone numbers of students who can enroll using the course code. You can paste multiple numbers separated by commas.'}
+            </Text>
+              <View style={styles.phoneNumberInputContainer}>
+                <TextInput
+                  style={styles.phoneNumberInput}
+                  placeholder="Enter phone numbers (separated by commas) or paste multiple numbers"
+                  value={phoneNumberInput}
+                  onChangeText={setPhoneNumberInput}
+                  keyboardType="default"
+                  placeholderTextColor="#9ca3af"
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                />
+                <TouchableOpacity
+                  style={styles.addPhoneButton}
+                  onPress={handleAddPhoneNumber}
+                >
+                  <Ionicons name="add" size={20} color="#2563eb" />
+                </TouchableOpacity>
+              </View>
+              {allowedPhoneNumbers.length > 0 && (
+                <View style={styles.phoneNumberList}>
+                  {allowedPhoneNumbers.map((phoneNumber, index) => (
+                    <View key={index} style={styles.phoneNumberTag}>
+                      <Text style={styles.phoneNumberTagText}>{phoneNumber}</Text>
+                      <TouchableOpacity
+                        style={styles.removePhoneButton}
+                        onPress={() => handleRemovePhoneNumber(phoneNumber)}
+                      >
+                        <Ionicons name="close-circle" size={18} color="#dc2626" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+
+          {/* Edit Type Selector - Only show when editing */}
+          {editingCourse && (
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Edit Type</Text>
+              <Text style={styles.editTypeDescription}>
+                Choose whether this change is temporary (resets after 24 hours) or permanent
+              </Text>
+              <View style={styles.editTypeContainer}>
+                <TouchableOpacity
+                  style={[
+                    styles.editTypeOption,
+                    editType === 'temporary' && styles.editTypeOptionActive,
+                  ]}
+                  onPress={() => setEditType('temporary')}
+                >
+                  <View style={styles.editTypeRadio}>
+                    {editType === 'temporary' && <View style={styles.editTypeRadioInner} />}
+                  </View>
+                  <View style={styles.editTypeContent}>
+                    <Text style={[
+                      styles.editTypeTitle,
+                      editType === 'temporary' && styles.editTypeTitleActive,
+                    ]}>
+                      Temporary Edit
+                    </Text>
+                    <Text style={styles.editTypeSubtitle}>
+                      Changes will reset to original values after 24 hours
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.editTypeOption,
+                    editType === 'permanent' && styles.editTypeOptionActive,
+                  ]}
+                  onPress={() => setEditType('permanent')}
+                >
+                  <View style={styles.editTypeRadio}>
+                    {editType === 'permanent' && <View style={styles.editTypeRadioInner} />}
+                  </View>
+                  <View style={styles.editTypeContent}>
+                    <Text style={[
+                      styles.editTypeTitle,
+                      editType === 'permanent' && styles.editTypeTitleActive,
+                    ]}>
+                      Permanent Edit
+                    </Text>
+                    <Text style={styles.editTypeSubtitle}>
+                      Changes will be saved permanently
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
           <Button
-            title={editingCourse ? 'Update Course' : 'Create Course'}
+            title={loading ? (editingCourse ? 'Updating...' : 'Creating...') : (editingCourse ? 'Update Course' : 'Create Course')}
             onPress={handleSave}
             variant="primary"
             style={styles.saveButton}
+            disabled={loading}
           />
         </View>
       </ScrollView>
+
+      {/* Course Code Modal */}
+      <Modal
+        visible={showCodeModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowCodeModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Ionicons name="checkmark-circle" size={48} color="#22c55e" />
+              <Text style={styles.modalTitle}>Course Created!</Text>
+              <Text style={styles.modalSubtitle}>
+                Share this code with students to enroll
+              </Text>
+            </View>
+
+            <View style={styles.codeContainer}>
+              <Text style={styles.codeLabel}>Course Code</Text>
+              <TouchableOpacity
+                style={styles.codeBox}
+                onPress={() => copyToClipboard(generatedCode)}
+              >
+                <Text style={styles.codeText} selectable={true}>{generatedCode}</Text>
+                <Ionicons name="copy-outline" size={20} color="#2563eb" />
+              </TouchableOpacity>
+              <Text style={styles.codeHint}>Tap to copy or select the code</Text>
+            </View>
+
+            <Button
+              title="Done"
+              onPress={() => {
+                setShowCodeModal(false);
+                navigation.goBack();
+              }}
+              variant="primary"
+              style={styles.modalButton}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -425,7 +808,6 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#2563eb',
-    paddingTop: 24,
     paddingBottom: 20,
     paddingHorizontal: 16,
     flexDirection: 'row',
@@ -530,6 +912,16 @@ const styles = StyleSheet.create({
     flex: 1,
     marginBottom: 0,
   },
+  indexInputField: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 12,
+    color: '#1f2937',
+  },
   timeField: {
     flex: 1,
     flexDirection: 'row',
@@ -538,14 +930,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e5e7eb',
     borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    gap: 6,
+    minHeight: 44,
+    maxHeight: 44,
   },
   timeFieldText: {
     flex: 1,
     fontSize: 14,
     color: '#1f2937',
+    flexShrink: 1,
   },
   timeFieldPlaceholder: {
     color: '#9ca3af',
@@ -582,8 +977,206 @@ const styles = StyleSheet.create({
   dayButtonTextSelected: {
     color: '#ffffff',
   },
+  editTypeDescription: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginBottom: 12,
+    lineHeight: 18,
+  },
+  editTypeContainer: {
+    gap: 12,
+  },
+  editTypeOption: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 14,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
+    backgroundColor: '#ffffff',
+  },
+  editTypeOptionActive: {
+    borderColor: '#2563eb',
+    backgroundColor: '#eff6ff',
+  },
+  editTypeRadio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#9ca3af',
+    marginRight: 12,
+    marginTop: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  editTypeRadioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#2563eb',
+  },
+  editTypeContent: {
+    flex: 1,
+  },
+  editTypeTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  editTypeTitleActive: {
+    color: '#2563eb',
+  },
+  editTypeSubtitle: {
+    fontSize: 12,
+    color: '#6b7280',
+    lineHeight: 16,
+  },
+  phoneNumberDescription: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginBottom: 12,
+    lineHeight: 18,
+  },
+  phoneNumberInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  phoneNumberInput: {
+    flex: 1,
+    minHeight: 100,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: '#f9fafb',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    fontSize: 14,
+    color: '#111827',
+    textAlignVertical: 'top',
+  },
+  addPhoneButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  phoneNumberList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  phoneNumberTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+    gap: 8,
+  },
+  phoneNumberTagText: {
+    fontSize: 13,
+    color: '#1e40af',
+    fontWeight: '500',
+  },
+  removePhoneButton: {
+    padding: 2,
+  },
   saveButton: {
     marginTop: 8,
+    width: '100%',
+  },
+  dayTimeContainer: {
+    marginBottom: 16,
+    padding: 12,
+    backgroundColor: '#f9fafb',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  dayTimeLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1f2937',
+    marginBottom: 8,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'center',
+  },
+  modalHeader: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+  },
+  codeContainer: {
+    width: '100%',
+    marginBottom: 24,
+  },
+  codeLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6b7280',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  codeBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f3f4f6',
+    borderRadius: 12,
+    padding: 20,
+    borderWidth: 2,
+    borderColor: '#2563eb',
+    borderStyle: 'dashed',
+    gap: 12,
+  },
+  codeText: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#2563eb',
+    letterSpacing: 4,
+  },
+  codeHint: {
+    fontSize: 12,
+    color: '#9ca3af',
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  modalButton: {
     width: '100%',
   },
 });

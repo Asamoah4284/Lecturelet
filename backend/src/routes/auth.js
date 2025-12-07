@@ -14,10 +14,12 @@ const router = express.Router();
 router.post(
   '/signup',
   [
-    body('email')
-      .isEmail()
-      .withMessage('Please provide a valid email')
-      .normalizeEmail(),
+    body('phoneNumber')
+      .trim()
+      .notEmpty()
+      .withMessage('Phone number is required')
+      .matches(/^[+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}$/)
+      .withMessage('Please provide a valid phone number'),
     body('password')
       .isLength({ min: 6 })
       .withMessage('Password must be at least 6 characters'),
@@ -33,24 +35,33 @@ router.post(
   validate,
   async (req, res) => {
     try {
-      const { email, password, fullName, role, studentId } = req.body;
+      const { phoneNumber, password, fullName, role, studentId } = req.body;
 
-      // Check if email already exists
-      if (await User.emailExists(email)) {
+      // Trim phone number
+      const trimmedPhoneNumber = phoneNumber?.trim();
+
+      // Check if phone number already exists
+      if (await User.phoneNumberExists(trimmedPhoneNumber)) {
         return res.status(409).json({
           success: false,
-          message: 'Email already registered',
+          message: 'Phone number already registered',
         });
       }
 
       // Create user
-      const user = await User.create({
-        email,
+      const userData = {
+        phoneNumber: trimmedPhoneNumber,
         password,
-        fullName,
+        fullName: fullName?.trim(),
         role: role || 'student',
-        studentId,
-      });
+      };
+      
+      // Only include studentId if provided
+      if (studentId?.trim()) {
+        userData.studentId = studentId.trim();
+      }
+      
+      const user = await User.create(userData);
 
       // Generate token
       const token = generateToken(user._id);
@@ -65,9 +76,46 @@ router.post(
       });
     } catch (error) {
       console.error('Signup error:', error);
+      
+      // Handle duplicate key error (MongoDB unique constraint)
+      if (error.code === 11000) {
+        const field = Object.keys(error.keyPattern)[0];
+        
+        // If it's the old email index, provide a helpful message
+        if (field === 'email') {
+          console.error('Email index still exists in database. Please drop the email_1 index.');
+          return res.status(500).json({
+            success: false,
+            message: 'Database configuration error. Please contact administrator.',
+          });
+        }
+        
+        const fieldName = field === 'phoneNumber' ? 'phone number' : field;
+        return res.status(409).json({
+          success: false,
+          message: `${fieldName.charAt(0).toUpperCase() + fieldName.slice(1)} already exists`,
+        });
+      }
+      
+      // Handle Mongoose validation errors
+      if (error.name === 'ValidationError') {
+        const errors = Object.values(error.errors).map(err => err.message);
+        return res.status(400).json({
+          success: false,
+          message: 'Validation failed',
+          errors: errors,
+        });
+      }
+      
+      // Return more specific error message in development
+      const errorMessage = process.env.NODE_ENV === 'development' 
+        ? error.message 
+        : 'Failed to create account';
+      
       res.status(500).json({
         success: false,
-        message: 'Failed to create account',
+        message: errorMessage,
+        ...(process.env.NODE_ENV === 'development' && { error: error.stack }),
       });
     }
   }
@@ -81,10 +129,10 @@ router.post(
 router.post(
   '/login',
   [
-    body('email')
-      .isEmail()
-      .withMessage('Please provide a valid email')
-      .normalizeEmail(),
+    body('phoneNumber')
+      .trim()
+      .notEmpty()
+      .withMessage('Phone number is required'),
     body('password')
       .notEmpty()
       .withMessage('Password is required'),
@@ -92,14 +140,14 @@ router.post(
   validate,
   async (req, res) => {
     try {
-      const { email, password } = req.body;
+      const { phoneNumber, password } = req.body;
 
-      // Find user by email (includes password)
-      const user = await User.findByEmail(email);
+      // Find user by phone number (includes password)
+      const user = await User.findByPhoneNumber(phoneNumber);
       if (!user) {
         return res.status(401).json({
           success: false,
-          message: 'Invalid email or password',
+          message: 'Invalid phone number or password',
         });
       }
 
@@ -107,7 +155,7 @@ router.post(
       if (!user.verifyPassword(password)) {
         return res.status(401).json({
           success: false,
-          message: 'Invalid email or password',
+          message: 'Invalid phone number or password',
         });
       }
 
@@ -244,6 +292,40 @@ router.put(
       res.status(500).json({
         success: false,
         message: 'Failed to update password',
+      });
+    }
+  }
+);
+
+/**
+ * @route   POST /api/auth/payment
+ * @desc    Process payment and update user payment status
+ * @access  Private
+ */
+router.post(
+  '/payment',
+  authenticate,
+  async (req, res) => {
+    try {
+      // Update user payment status to paid
+      const updatedUser = await User.findByIdAndUpdate(
+        req.user.id,
+        { paymentStatus: true },
+        { new: true }
+      ).select('-password');
+
+      res.json({
+        success: true,
+        message: 'Payment processed successfully',
+        data: {
+          user: updatedUser.toPublicJSON(),
+        },
+      });
+    } catch (error) {
+      console.error('Payment processing error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to process payment',
       });
     }
   }

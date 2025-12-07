@@ -1,17 +1,18 @@
 import React from 'react';
 import { TouchableOpacity, Text, StyleSheet } from 'react-native';
 
-const Button = ({ title, onPress, variant = 'primary', style }) => {
+const Button = ({ title, onPress, variant = 'primary', style, disabled = false }) => {
   const buttonStyle = variant === 'primary' ? styles.primaryButton : styles.secondaryButton;
   const textStyle = variant === 'primary' ? styles.primaryText : styles.secondaryText;
 
   return (
     <TouchableOpacity
-      style={[styles.button, buttonStyle, style]}
-      onPress={onPress}
-      activeOpacity={0.8}
+      style={[styles.button, buttonStyle, style, disabled && styles.buttonDisabled]}
+      onPress={disabled ? undefined : onPress}
+      activeOpacity={disabled ? 1 : 0.8}
+      disabled={disabled}
     >
-      <Text style={[styles.buttonText, textStyle]}>{title}</Text>
+      <Text style={[styles.buttonText, textStyle, disabled && styles.textDisabled]}>{title}</Text>
     </TouchableOpacity>
   );
 };
@@ -42,6 +43,12 @@ const styles = StyleSheet.create({
   },
   secondaryText: {
     color: '#2563eb',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  textDisabled: {
+    opacity: 0.8,
   },
 });
 

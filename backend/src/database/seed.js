@@ -1,6 +1,6 @@
 /**
  * Database Seed Script
- * Loads sample data into the LecturerLet MongoDB database
+ * Loads sample data into the LectureLet MongoDB database
  */
 
 require('dotenv').config();
@@ -198,8 +198,8 @@ const sampleCourses = [
  */
 const notificationTemplates = [
   {
-    title: 'Welcome to LecturerLet!',
-    message: 'Thank you for joining LecturerLet. Stay updated with your lecture schedules!',
+    title: 'Welcome to LectureLet!',
+    message: 'Thank you for joining LectureLet. Stay updated with your lecture schedules!',
     type: 'system'
   },
   {
@@ -325,8 +325,8 @@ const seedNotifications = async (users, courses) => {
     // Welcome notification for all users
     notifications.push({
       userId: user._id,
-      title: 'Welcome to LecturerLet!',
-      message: `Hello ${user.fullName}! Welcome to LecturerLet. Stay updated with your lecture schedules.`,
+      title: 'Welcome to LectureLet!',
+      message: `Hello ${user.fullName}! Welcome to LectureLet. Stay updated with your lecture schedules.`,
       type: 'system',
       isRead: Math.random() > 0.5
     });
@@ -419,4 +419,6 @@ if (require.main === module) {
 }
 
 module.exports = seedDatabase;
+
+
 

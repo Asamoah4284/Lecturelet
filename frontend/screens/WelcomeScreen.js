@@ -229,7 +229,7 @@ const WelcomeScreen = ({ navigation }) => {
 
       {/* Bottom section */}
       <View style={styles.bottomSection}>
-        <Text style={styles.appTitle}>Lecturerlet</Text>
+        <Text style={styles.appTitle}>LectureLet</Text>
         <Text style={styles.tagline}>Never miss a lecture again</Text>
 
        

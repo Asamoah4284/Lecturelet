@@ -1,6 +1,6 @@
 const express = require('express');
 const { body, param } = require('express-validator');
-const { Course, Enrollment, Notification } = require('../models');
+const { Course, Enrollment, Notification, User } = require('../models');
 const { authenticate, authorize } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 
@@ -18,7 +18,7 @@ router.post(
   [
     body('uniqueCode')
       .trim()
-      .isLength({ min: 6, max: 6 })
+      .isLength({ min: 5, max: 5 })
       .withMessage('Invalid course code format'),
   ],
   validate,
@@ -33,6 +33,17 @@ router.post(
           success: false,
           message: 'Course not found. Please check the code and try again.',
         });
+      }
+
+      // Check if user has paid (only for students)
+      if (req.user.role === 'student') {
+        const user = await User.findById(req.user.id);
+        if (!user || !user.paymentStatus) {
+          return res.status(403).json({
+            success: false,
+            message: 'Payment required. Please make a payment in Settings before enrolling in courses.',
+          });
+        }
       }
 
       // Check if already enrolled

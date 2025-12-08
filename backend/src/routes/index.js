@@ -3,6 +3,7 @@ const authRoutes = require('./auth');
 const courseRoutes = require('./courses');
 const enrollmentRoutes = require('./enrollments');
 const notificationRoutes = require('./notifications');
+const paymentRoutes = require('./payments');
 
 const router = express.Router();
 
@@ -20,6 +21,7 @@ router.use('/auth', authRoutes);
 router.use('/courses', courseRoutes);
 router.use('/enrollments', enrollmentRoutes);
 router.use('/notifications', notificationRoutes);
+router.use('/payments', paymentRoutes);
 
 module.exports = router;
 

@@ -68,7 +68,7 @@ const CourseListScreen = ({ navigation }) => {
       <View style={styles.headerArea}>
         <View style={styles.logoCircle}>
           <Text style={styles.logoText}>L</Text>
-          <Text style={styles.logoDot}>●</Text>
+          <Ionicons name="notifications-outline" size={16} color="#ffffff" style={styles.logoIcon} />
           <Text style={styles.logoText}>L</Text>
         </View>
         <Text style={styles.title}>LectureLet</Text>
@@ -194,9 +194,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontSize: 20,
   },
-  logoDot: {
-    color: '#ffffff',
-    fontSize: 10,
+  logoIcon: {
     marginHorizontal: 6,
   },
   title: {

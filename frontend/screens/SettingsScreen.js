@@ -16,15 +16,21 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import Button from '../components/Button';
 import { getApiUrl } from '../config/api';
+import { PaystackProvider, usePaystack } from 'react-native-paystack-webview';
 
-const SettingsScreen = ({ navigation }) => {
+const PAYSTACK_PUBLIC_KEY = 'pk_test_5fe292bf0df872407adaebe53b5982e173a45f44';
+const PAYMENT_CURRENCY = 'NGN';
+const PAYMENT_AMOUNT = 15; // Fixed amount (NGN)
+
+const SettingsContent = ({ navigation }) => {
   const [dailyNotifications, setDailyNotifications] = useState(true);
   const [userName, setUserName] = useState('');
+  const [userEmail, setUserEmail] = useState('');
+  const [paymentEmail, setPaymentEmail] = useState('');
   const [userPhoneNumber, setUserPhoneNumber] = useState('');
   const [userRole, setUserRole] = useState('');
   const [processingPayment, setProcessingPayment] = useState(false);
   const [hasPaid, setHasPaid] = useState(false);
-  const PAYMENT_AMOUNT = 15; // Fixed amount in GHS
 
   // Load user data on mount
   useEffect(() => {
@@ -47,6 +53,10 @@ const SettingsScreen = ({ navigation }) => {
         if (userData.full_name) {
           setUserName(userData.full_name);
         }
+        if (userData.email) {
+          setUserEmail(userData.email);
+          setPaymentEmail(userData.email);
+        }
         if (userData.phone_number) {
           setUserPhoneNumber(userData.phone_number);
         }
@@ -59,6 +69,103 @@ const SettingsScreen = ({ navigation }) => {
       }
     } catch (error) {
       console.error('Error loading user data:', error);
+    }
+  };
+
+  const handleMakePayment = async () => {
+    const effectiveEmail = (paymentEmail || userEmail || '').trim();
+    if (!effectiveEmail) {
+      Alert.alert('Payment Error', 'Email is required to start payment. Please enter an email.');
+      return;
+    }
+    setProcessingPayment(true);
+    try {
+      const token = await AsyncStorage.getItem('@auth_token');
+      if (!token) {
+        Alert.alert('Payment Error', 'Not authenticated. Please log in again.');
+        return;
+      }
+
+      const response = await fetch(getApiUrl('payments/initiate'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          amount: PAYMENT_AMOUNT,
+          email: effectiveEmail,
+          currency: PAYMENT_CURRENCY,
+          metadata: {
+            phone_number: userPhoneNumber,
+            name: userName,
+          },
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success || !data.data?.authorizationUrl || !data.data?.reference) {
+        Alert.alert('Payment Error', data.message || 'Unable to start payment. Please try again.');
+        return;
+      }
+
+      // Trigger Paystack checkout within app
+      checkout({
+        email: effectiveEmail,
+        amount: PAYMENT_AMOUNT * 100, // Paystack expects lowest currency unit
+        reference: data.data.reference,
+        metadata: {
+          phone_number: userPhoneNumber,
+          name: userName,
+        },
+      });
+    } catch (error) {
+      console.error('Payment initiation error:', error);
+      Alert.alert('Payment Error', 'Something went wrong while starting the payment.');
+    } finally {
+      setProcessingPayment(false);
+    }
+  };
+
+  const handleVerifyPayment = async (reference) => {
+    if (!reference) {
+      Alert.alert('Payment Error', 'Missing payment reference for verification.');
+      return;
+    }
+    try {
+      const token = await AsyncStorage.getItem('@auth_token');
+      if (!token) {
+        Alert.alert('Payment Error', 'Not authenticated. Please log in again.');
+        return;
+      }
+      const verifyResponse = await fetch(getApiUrl(`payments/verify/${reference}`), {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      const verifyData = await verifyResponse.json();
+      if (!verifyResponse.ok || !verifyData.success) {
+        Alert.alert('Payment Error', verifyData.message || 'Unable to verify payment.');
+        return;
+      }
+
+      const status = verifyData.data?.status;
+      if (status === 'success') {
+        // Persist paid flag locally
+        const userDataString = await AsyncStorage.getItem('@user_data');
+        if (userDataString) {
+          const userData = JSON.parse(userDataString);
+          userData.payment_status = true;
+          await AsyncStorage.setItem('@user_data', JSON.stringify(userData));
+        }
+        setHasPaid(true);
+        Alert.alert('Payment Successful', 'Your payment was successful.');
+      } else {
+        Alert.alert('Payment Pending', 'Payment not completed yet. Please try again.');
+      }
+    } catch (error) {
+      console.error('Payment verify error:', error);
+      Alert.alert('Payment Error', 'Something went wrong while verifying the payment.');
     }
   };
 
@@ -96,10 +203,10 @@ const SettingsScreen = ({ navigation }) => {
               await AsyncStorage.removeItem('@auth_token');
               await AsyncStorage.removeItem('@user_data');
               
-              // Reset navigation stack to Welcome screen
+              // Reset navigation stack straight to LectureLet home (skip animation screen)
               navigation.reset({
                 index: 0,
-                routes: [{ name: 'Welcome' }],
+                routes: [{ name: 'CourseList' }],
               });
             } catch (error) {
               console.error('Error during logout:', error);
@@ -111,65 +218,26 @@ const SettingsScreen = ({ navigation }) => {
     );
   };
 
-  const handleMakePayment = async () => {
-    setProcessingPayment(true);
+ 
 
-    try {
-      const token = await AsyncStorage.getItem('@auth_token');
-      if (!token) {
-        throw new Error('Not authenticated. Please log in again.');
-      }
+  const paystack = usePaystack();
 
-      // Call payment API
-      const response = await fetch(getApiUrl('auth/payment'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Payment failed. Please try again.');
-      }
-
-      if (data.success && data.data && data.data.user) {
-        // Update user data in AsyncStorage
-        const userDataString = await AsyncStorage.getItem('@user_data');
-        if (userDataString) {
-          const userData = JSON.parse(userDataString);
-          userData.payment_status = true;
-          await AsyncStorage.setItem('@user_data', JSON.stringify(userData));
-        }
-
-        // Update payment status state
-        setHasPaid(true);
-
-        Alert.alert(
-          'Payment Successful',
-          `Your payment of GHS ${PAYMENT_AMOUNT.toFixed(2)} has been processed successfully via Mobile Money. You can now enroll in courses.`,
-          [
-            {
-              text: 'OK',
-            },
-          ]
-        );
-      } else {
-        throw new Error('Payment processing failed.');
-      }
-    } catch (error) {
-      console.error('Payment error:', error);
-      Alert.alert('Error', error.message || 'Payment failed. Please try again.');
-    } finally {
-      setProcessingPayment(false);
-    }
+  const checkout = (params) => {
+    paystack?.popup?.checkout({
+      ...params,
+      onCancel: () => {
+        setProcessingPayment(false);
+      },
+      onSuccess: (result) => {
+        const ref = result?.reference || result?.transactionRef?.reference || params.reference;
+        handleVerifyPayment(ref);
+      },
+    });
   };
 
   return (
-    <SafeAreaView style={styles.screen}>
-      <StatusBar style="light" />
+      <SafeAreaView style={styles.screen}>
+        <StatusBar style="light" />
       
       {/* Blue Header */}
       <View style={styles.header} />
@@ -226,8 +294,21 @@ const SettingsScreen = ({ navigation }) => {
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Amount</Text>
               <View style={styles.amountDisplay}>
-                <Text style={styles.amountText}>GHS {PAYMENT_AMOUNT.toFixed(2)}</Text>
+                <Text style={styles.amountText}>NGN {PAYMENT_AMOUNT.toFixed(2)}</Text>
               </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Payment Email</Text>
+              <TextInput
+                style={styles.emailInput}
+                placeholder="Enter email for receipt"
+                value={paymentEmail}
+                onChangeText={setPaymentEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                placeholderTextColor="#9ca3af"
+              />
             </View>
 
             <View style={styles.inputGroup}>
@@ -320,6 +401,14 @@ const SettingsScreen = ({ navigation }) => {
         </TouchableOpacity>
       </View>
     </SafeAreaView>
+  );
+};
+
+const SettingsScreen = (props) => {
+  return (
+    <PaystackProvider publicKey={PAYSTACK_PUBLIC_KEY} currency={PAYMENT_CURRENCY} defaultChannels={['card']}>
+      <SettingsContent {...props} />
+    </PaystackProvider>
   );
 };
 
@@ -503,6 +592,16 @@ const styles = StyleSheet.create({
   amountText: {
     fontSize: 16,
     fontWeight: '600',
+    color: '#111827',
+  },
+  emailInput: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 14,
     color: '#111827',
   },
   paymentMethodDisplay: {

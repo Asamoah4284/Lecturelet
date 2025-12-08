@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
+import { ActivityIndicator, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import WelcomeScreen from '../screens/WelcomeScreen';
 import CourseListScreen from '../screens/CourseListScreen';
 import AddCourseScreen from '../screens/AddCourseScreen';
@@ -21,10 +23,48 @@ import StudentTimetableScreen from '../screens/StudentTimetableScreen';
 const Stack = createStackNavigator();
 
 const AppNavigator = () => {
+  const [initialRoute, setInitialRoute] = useState(null);
+
+  useEffect(() => {
+    const determineInitialRoute = async () => {
+      try {
+        const token = await AsyncStorage.getItem('@auth_token');
+        if (token) {
+          const userDataString = await AsyncStorage.getItem('@user_data');
+          if (userDataString) {
+            const userData = JSON.parse(userDataString);
+            if (userData.role === 'course_rep') {
+              setInitialRoute('CourseRep');
+              return;
+            }
+          }
+          // Default to student home if logged in but no role set
+          setInitialRoute('StudentHome');
+        } else {
+          setInitialRoute('Welcome');
+        }
+      } catch (err) {
+        console.error('Error determining initial route:', err);
+        setInitialRoute('Welcome');
+      }
+    };
+
+    determineInitialRoute();
+  }, []);
+
+  // Prevent flicker while figuring out where to send the user
+  if (!initialRoute) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#6366f1" />
+      </View>
+    );
+  }
+
   return (
     <NavigationContainer>
       <Stack.Navigator
-        initialRouteName="Welcome"
+        initialRouteName={initialRoute}
         screenOptions={{
           headerStyle: {
             backgroundColor: '#6366f1',

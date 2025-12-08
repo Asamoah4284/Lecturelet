@@ -158,6 +158,13 @@ const StudentCoursesScreen = ({ navigation }) => {
       {/* Blue Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Courses</Text>
+        <TouchableOpacity
+          style={styles.timetableButton}
+          onPress={() => navigation.navigate('StudentTimetable')}
+        >
+          <Ionicons name="calendar-outline" size={20} color="#ffffff" />
+          <Text style={styles.timetableButtonText}>Timetable</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Search Bar */}
@@ -350,10 +357,27 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'android' ? 28 : 0,
     paddingBottom: 20,
     paddingHorizontal: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   headerTitle: {
     color: '#ffffff',
     fontSize: 18,
+    fontWeight: '600',
+  },
+  timetableButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  timetableButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
     fontWeight: '600',
   },
   searchSection: {

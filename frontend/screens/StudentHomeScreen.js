@@ -129,11 +129,29 @@ const StudentHomeScreen = ({ navigation }) => {
           </TouchableOpacity>
         </View>
 
+        {/* Timetable Quick Access */}
+        <TouchableOpacity
+          style={styles.timetableCard}
+          onPress={() => navigation.navigate('StudentTimetable')}
+          activeOpacity={0.8}
+        >
+          <View style={styles.timetableCardContent}>
+            <View style={styles.timetableIconContainer}>
+              <Ionicons name="calendar" size={24} color="#2563eb" />
+            </View>
+            <View style={styles.timetableTextContainer}>
+              <Text style={styles.timetableTitle}>View Timetable</Text>
+              <Text style={styles.timetableSubtitle}>See your weekly schedule</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#6b7280" />
+          </View>
+        </TouchableOpacity>
+
         {/* Section Header */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>My Enrolled Courses</Text>
-          <TouchableOpacity onPress={() => navigation.navigate('StudentTimetable')}>
-            <Text style={styles.seeAllText}>View Timetable</Text>
+          <TouchableOpacity onPress={() => navigation.navigate('StudentCourses')}>
+            <Text style={styles.seeAllText}>See All</Text>
           </TouchableOpacity>
         </View>
 
@@ -311,6 +329,47 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 12,
+  },
+  timetableCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    marginBottom: 24,
+    shadowColor: '#2563eb',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  timetableCardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+  },
+  timetableIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#eff6ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+  },
+  timetableTextContainer: {
+    flex: 1,
+  },
+  timetableTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  timetableSubtitle: {
+    fontSize: 13,
+    color: '#6b7280',
   },
   sectionHeader: {
     flexDirection: 'row',

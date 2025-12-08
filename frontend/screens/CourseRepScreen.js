@@ -58,6 +58,18 @@ const CourseRepScreen = ({ navigation }) => {
         return;
       }
 
+      // Check user role before making API call
+      const userDataString = await AsyncStorage.getItem('@user_data');
+      if (userDataString) {
+        const userData = JSON.parse(userDataString);
+        if (userData.role !== 'course_rep') {
+          // User is not a course rep, don't make the API call
+          setLoading(false);
+          setRefreshing(false);
+          return;
+        }
+      }
+
       const response = await fetch(getApiUrl('courses/my-courses'), {
         method: 'GET',
         headers: {
@@ -70,7 +82,10 @@ const CourseRepScreen = ({ navigation }) => {
       if (response.ok && data.success) {
         setCourses(data.data.courses || []);
       } else {
-        console.error('Error loading courses:', data.message);
+        // Only log error if it's not a permission error (403)
+        if (response.status !== 403) {
+          console.error('Error loading courses:', data.message);
+        }
       }
     } catch (error) {
       console.error('Error loading courses:', error);

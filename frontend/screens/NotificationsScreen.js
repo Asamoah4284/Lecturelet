@@ -277,8 +277,8 @@ const NotificationsScreen = ({ navigation }) => {
           <View style={styles.navIconContainer}>
             <Ionicons name="notifications" size={24} color="#2563eb" />
             {unreadCount > 0 && (
-              <View style={styles.badgeContainer}>
-                <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+              <View style={styles.navBadgeContainer}>
+                <Text style={styles.navBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
               </View>
             )}
             <Ionicons name="arrow-up" size={12} color="#2563eb" style={styles.navIconArrow} />
@@ -410,6 +410,26 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -4,
     right: -10,
+  },
+  navBadgeContainer: {
+    position: 'absolute',
+    top: -4,
+    right: -10,
+    backgroundColor: '#ef4444',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+    zIndex: 1,
+    borderWidth: 2,
+    borderColor: '#ffffff',
+  },
+  navBadgeText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '700',
   },
   badgeContainer: {
     position: 'absolute',

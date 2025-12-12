@@ -14,10 +14,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { getApiUrl } from '../config/api';
 import Button from '../components/Button';
+import { useUnreadNotifications } from '../hooks/useUnreadNotifications';
 
 const StudentHomeScreen = ({ navigation }) => {
   const [userName, setUserName] = useState('Student');
   const [enrolledCourses, setEnrolledCourses] = useState([]);
+  const { unreadCount } = useUnreadNotifications(navigation);
   const [loading, setLoading] = useState(true);
 
   // Load user data and courses on mount
@@ -254,7 +256,14 @@ const StudentHomeScreen = ({ navigation }) => {
           style={styles.navItem}
           onPress={() => navigation.navigate('Notifications')}
         >
-          <Ionicons name="notifications-outline" size={24} color="#6b7280" />
+          <View style={styles.navIconContainer}>
+            <Ionicons name="notifications-outline" size={24} color="#6b7280" />
+            {unreadCount > 0 && (
+              <View style={styles.navBadgeContainer}>
+                <Text style={styles.navBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+              </View>
+            )}
+          </View>
           <Text style={styles.navLabel}>Notifications</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -569,6 +578,26 @@ const styles = StyleSheet.create({
   navLabelActive: {
     color: '#2563eb',
     fontWeight: '600',
+  },
+  navBadgeContainer: {
+    position: 'absolute',
+    top: -4,
+    right: -10,
+    backgroundColor: '#ef4444',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+    zIndex: 1,
+    borderWidth: 2,
+    borderColor: '#ffffff',
+  },
+  navBadgeText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '700',
   },
 });
 

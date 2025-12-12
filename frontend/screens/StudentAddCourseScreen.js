@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApiUrl } from '../config/api';
 import Button from '../components/Button';
+import { initializeNotifications } from '../services/notificationService';
 
 const StudentAddCourseScreen = ({ navigation }) => {
   const [uniqueCode, setUniqueCode] = useState('');
@@ -167,6 +168,9 @@ const StudentAddCourseScreen = ({ navigation }) => {
       }
 
       if (data.success) {
+        // Register push token after successful enrollment
+        await initializeNotifications();
+        
         Alert.alert(
           'Success',
           data.message || 'Successfully enrolled in course!',

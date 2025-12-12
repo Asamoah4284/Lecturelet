@@ -34,6 +34,11 @@ const userSchema = new mongoose.Schema({
     type: Number,
     default: 15
   },
+  pushToken: {
+    type: String,
+    default: null,
+    trim: true
+  },
   paymentStatus: {
     type: Boolean,
     default: false
@@ -63,6 +68,14 @@ userSchema.statics.findByPhoneNumber = function(phoneNumber) {
 userSchema.statics.phoneNumberExists = async function(phoneNumber) {
   const user = await this.findOne({ phoneNumber: phoneNumber.trim() });
   return !!user;
+};
+
+/**
+ * Update push token for the user
+ */
+userSchema.methods.updatePushToken = function(pushToken) {
+  this.pushToken = pushToken || null;
+  return this.save();
 };
 
 // Transform output to match expected format

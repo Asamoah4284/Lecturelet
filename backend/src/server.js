@@ -12,6 +12,7 @@ const routes = require('./routes');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 const connectDB = require('./config/database');
 const { startTemporaryEditResetJob } = require('./utils/temporaryEditReset');
+const { startClassReminderJob } = require('./utils/classReminderJob');
 
 const app = express();
 
@@ -64,6 +65,9 @@ const startServer = async () => {
     
     // Start temporary edit reset job (runs every hour)
     startTemporaryEditResetJob();
+    
+    // Start class reminder job (runs every 5 minutes)
+    startClassReminderJob();
     
     // Start server
     const PORT = config.port;

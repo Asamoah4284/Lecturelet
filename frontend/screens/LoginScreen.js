@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Button from '../components/Button';
 import { getApiUrl } from '../config/api';
+import { initializeNotifications } from '../services/notificationService';
 
 const LoginScreen = ({ navigation }) => {
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -61,6 +62,17 @@ const LoginScreen = ({ navigation }) => {
         // Store token and user data
         await AsyncStorage.setItem('@auth_token', data.data.token);
         await AsyncStorage.setItem('@user_data', JSON.stringify(data.data.user));
+
+        // Register push token for notifications (if notifications are enabled)
+        // Force registration during login to ensure token is registered with user account
+        if (data.data.user.notifications_enabled !== false) {
+          try {
+            await initializeNotifications(true); // Force registration for login
+          } catch (notifError) {
+            // Don't block login if notification registration fails
+            console.log('Notification registration failed during login:', notifError);
+          }
+        }
 
         // Reset navigation stack to prevent going back to login/signup
         const userRole = data.data.user.role;

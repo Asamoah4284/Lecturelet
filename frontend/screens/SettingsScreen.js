@@ -16,21 +16,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import Button from '../components/Button';
 import { getApiUrl } from '../config/api';
-import { PaystackProvider, usePaystack } from 'react-native-paystack-webview';
-
-const PAYSTACK_PUBLIC_KEY = 'pk_test_5fe292bf0df872407adaebe53b5982e173a45f44';
-const PAYMENT_CURRENCY = 'NGN';
-const PAYMENT_AMOUNT = 15; // Fixed amount (NGN)
+import { initializeNotifications, removePushToken } from '../services/notificationService';
 
 const SettingsContent = ({ navigation }) => {
-  const [dailyNotifications, setDailyNotifications] = useState(true);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [reminderMinutes, setReminderMinutes] = useState('15');
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
-  const [paymentEmail, setPaymentEmail] = useState('');
   const [userPhoneNumber, setUserPhoneNumber] = useState('');
   const [userRole, setUserRole] = useState('');
-  const [processingPayment, setProcessingPayment] = useState(false);
-  const [hasPaid, setHasPaid] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   // Load user data on mount
   useEffect(() => {
@@ -47,6 +42,10 @@ const SettingsContent = ({ navigation }) => {
 
   const loadUserData = async () => {
     try {
+      const token = await AsyncStorage.getItem('@auth_token');
+      if (!token) return;
+
+      // Load from AsyncStorage first for quick display
       const userDataString = await AsyncStorage.getItem('@user_data');
       if (userDataString) {
         const userData = JSON.parse(userDataString);
@@ -55,7 +54,6 @@ const SettingsContent = ({ navigation }) => {
         }
         if (userData.email) {
           setUserEmail(userData.email);
-          setPaymentEmail(userData.email);
         }
         if (userData.phone_number) {
           setUserPhoneNumber(userData.phone_number);
@@ -63,111 +61,93 @@ const SettingsContent = ({ navigation }) => {
         if (userData.role) {
           setUserRole(userData.role);
         }
-        if (userData.payment_status !== undefined) {
-          setHasPaid(userData.payment_status === true);
+        if (userData.notifications_enabled !== undefined) {
+          setNotificationsEnabled(userData.notifications_enabled);
         }
+        if (userData.reminder_minutes !== undefined) {
+          setReminderMinutes(String(userData.reminder_minutes));
+        }
+      }
+
+      // Fetch latest from backend
+      const response = await fetch(getApiUrl('auth/profile'), {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+      if (response.ok && data.success && data.data.user) {
+        const user = data.data.user;
+        setNotificationsEnabled(user.notifications_enabled ?? true);
+        setReminderMinutes(String(user.reminder_minutes ?? 15));
+        // Update AsyncStorage
+        await AsyncStorage.setItem('@user_data', JSON.stringify(user));
       }
     } catch (error) {
       console.error('Error loading user data:', error);
     }
   };
 
-  const handleMakePayment = async () => {
-    const effectiveEmail = (paymentEmail || userEmail || '').trim();
-    if (!effectiveEmail) {
-      Alert.alert('Payment Error', 'Email is required to start payment. Please enter an email.');
-      return;
-    }
-    setProcessingPayment(true);
+  const handleSaveSettings = async () => {
+    setSaving(true);
     try {
       const token = await AsyncStorage.getItem('@auth_token');
       if (!token) {
-        Alert.alert('Payment Error', 'Not authenticated. Please log in again.');
+        Alert.alert('Error', 'Not authenticated. Please log in again.');
         return;
       }
 
-      const response = await fetch(getApiUrl('payments/initiate'), {
-        method: 'POST',
+      const reminderMinutesNum = parseInt(reminderMinutes, 10);
+      if (isNaN(reminderMinutesNum) || reminderMinutesNum < 0 || reminderMinutesNum > 120) {
+        Alert.alert('Error', 'Reminder minutes must be between 0 and 120');
+        return;
+      }
+
+      const response = await fetch(getApiUrl('auth/profile'), {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          amount: PAYMENT_AMOUNT,
-          email: effectiveEmail,
-          currency: PAYMENT_CURRENCY,
-          metadata: {
-            phone_number: userPhoneNumber,
-            name: userName,
-          },
+          notificationsEnabled,
+          reminderMinutes: reminderMinutesNum,
         }),
       });
 
       const data = await response.json();
-      if (!response.ok || !data.success || !data.data?.authorizationUrl || !data.data?.reference) {
-        Alert.alert('Payment Error', data.message || 'Unable to start payment. Please try again.');
-        return;
-      }
 
-      // Trigger Paystack checkout within app
-      checkout({
-        email: effectiveEmail,
-        amount: PAYMENT_AMOUNT * 100, // Paystack expects lowest currency unit
-        reference: data.data.reference,
-        metadata: {
-          phone_number: userPhoneNumber,
-          name: userName,
-        },
-      });
-    } catch (error) {
-      console.error('Payment initiation error:', error);
-      Alert.alert('Payment Error', 'Something went wrong while starting the payment.');
-    } finally {
-      setProcessingPayment(false);
-    }
-  };
-
-  const handleVerifyPayment = async (reference) => {
-    if (!reference) {
-      Alert.alert('Payment Error', 'Missing payment reference for verification.');
-      return;
-    }
-    try {
-      const token = await AsyncStorage.getItem('@auth_token');
-      if (!token) {
-        Alert.alert('Payment Error', 'Not authenticated. Please log in again.');
-        return;
-      }
-      const verifyResponse = await fetch(getApiUrl(`payments/verify/${reference}`), {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-      const verifyData = await verifyResponse.json();
-      if (!verifyResponse.ok || !verifyData.success) {
-        Alert.alert('Payment Error', verifyData.message || 'Unable to verify payment.');
-        return;
-      }
-
-      const status = verifyData.data?.status;
-      if (status === 'success') {
-        // Persist paid flag locally
+      if (response.ok && data.success) {
+        // Update local storage
         const userDataString = await AsyncStorage.getItem('@user_data');
         if (userDataString) {
           const userData = JSON.parse(userDataString);
-          userData.payment_status = true;
+          userData.notifications_enabled = notificationsEnabled;
+          userData.reminder_minutes = reminderMinutesNum;
           await AsyncStorage.setItem('@user_data', JSON.stringify(userData));
         }
-        setHasPaid(true);
-        Alert.alert('Payment Successful', 'Your payment was successful.');
+
+        // Initialize or remove notifications based on preference
+        if (notificationsEnabled) {
+          await initializeNotifications();
+        } else {
+          await removePushToken();
+        }
+
+        Alert.alert('Success', 'Settings saved successfully');
       } else {
-        Alert.alert('Payment Pending', 'Payment not completed yet. Please try again.');
+        Alert.alert('Error', data.message || 'Failed to save settings');
       }
     } catch (error) {
-      console.error('Payment verify error:', error);
-      Alert.alert('Payment Error', 'Something went wrong while verifying the payment.');
+      console.error('Error saving settings:', error);
+      Alert.alert('Error', 'Failed to save settings. Please try again.');
+    } finally {
+      setSaving(false);
     }
   };
+
 
   const getInitial = () => {
     if (userName) {
@@ -218,22 +198,6 @@ const SettingsContent = ({ navigation }) => {
     );
   };
 
- 
-
-  const paystack = usePaystack();
-
-  const checkout = (params) => {
-    paystack?.popup?.checkout({
-      ...params,
-      onCancel: () => {
-        setProcessingPayment(false);
-      },
-      onSuccess: (result) => {
-        const ref = result?.reference || result?.transactionRef?.reference || params.reference;
-        handleVerifyPayment(ref);
-      },
-    });
-  };
 
   return (
       <SafeAreaView style={styles.screen}>
@@ -275,66 +239,43 @@ const SettingsContent = ({ navigation }) => {
           <View style={styles.settingItem}>
             <View style={styles.settingLeft}>
               <Ionicons name="notifications-outline" size={20} color="#6b7280" />
-              <Text style={styles.settingLabel}>Daily Notifications</Text>
+              <View style={styles.settingInfo}>
+                <Text style={styles.settingLabel}>Enable Notifications</Text>
+                <Text style={styles.settingDescription}>
+                  Receive reminders about upcoming lectures
+                </Text>
+              </View>
             </View>
             <Switch
-              value={dailyNotifications}
-              onValueChange={setDailyNotifications}
+              value={notificationsEnabled}
+              onValueChange={setNotificationsEnabled}
               trackColor={{ false: '#d1d5db', true: '#22c55e' }}
               thumbColor="#ffffff"
             />
           </View>
-        </View>
 
-        {/* Payment Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Make Payment</Text>
-
-          <View style={styles.paymentContainer}>
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Amount</Text>
-              <View style={styles.amountDisplay}>
-                <Text style={styles.amountText}>NGN {PAYMENT_AMOUNT.toFixed(2)}</Text>
-              </View>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Payment Email</Text>
-              <TextInput
-                style={styles.emailInput}
-                placeholder="Enter email for receipt"
-                value={paymentEmail}
-                onChangeText={setPaymentEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                placeholderTextColor="#9ca3af"
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <View style={styles.paymentMethodDisplay}>
-                <Ionicons name="phone-portrait-outline" size={20} color="#2563eb" />
-                <Text style={styles.paymentMethodLabel}>Mobile Money</Text>
-              </View>
-            </View>
-
-            {hasPaid ? (
-              <View style={styles.paidStatusContainer}>
-                <View style={styles.paidStatusBadge}>
-                  <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
-                  <Text style={styles.paidStatusText}>Paid</Text>
+          {notificationsEnabled && (
+            <View style={styles.settingItem}>
+              <View style={styles.settingLeft}>
+                <Ionicons name="time-outline" size={20} color="#6b7280" />
+                <View style={styles.settingInfo}>
+                  <Text style={styles.settingLabel}>Remind me before (minutes)</Text>
+                  <Text style={styles.settingDescription}>
+                    How many minutes before class to receive reminder
+                  </Text>
                 </View>
               </View>
-            ) : (
-              <Button
-                title={processingPayment ? 'Processing...' : 'Make Payment'}
-                onPress={handleMakePayment}
-                variant="primary"
-                style={styles.paymentButton}
-                disabled={processingPayment}
+              <TextInput
+                style={styles.reminderInput}
+                value={reminderMinutes}
+                onChangeText={setReminderMinutes}
+                keyboardType="numeric"
+                placeholder="15"
+                placeholderTextColor="#9ca3af"
+                maxLength={3}
               />
-            )}
-          </View>
+            </View>
+          )}
         </View>
 
         {/* Support Section */}
@@ -357,6 +298,15 @@ const SettingsContent = ({ navigation }) => {
             <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
           </TouchableOpacity>
         </View>
+
+        {/* Save Settings Button */}
+        <Button
+          title={saving ? "Saving..." : "Save Settings"}
+          onPress={handleSaveSettings}
+          variant="primary"
+          style={styles.saveButton}
+          disabled={saving}
+        />
 
         {/* Logout Button + Version */}
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
@@ -405,11 +355,7 @@ const SettingsContent = ({ navigation }) => {
 };
 
 const SettingsScreen = (props) => {
-  return (
-    <PaystackProvider publicKey={PAYSTACK_PUBLIC_KEY} currency={PAYMENT_CURRENCY} defaultChannels={['card']}>
-      <SettingsContent {...props} />
-    </PaystackProvider>
-  );
+  return <SettingsContent {...props} />;
 };
 
 const styles = StyleSheet.create({
@@ -505,10 +451,33 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 12,
   },
+  settingInfo: {
+    flex: 1,
+  },
   settingLabel: {
     fontSize: 13,
     fontWeight: '500',
     color: '#111827',
+  },
+  settingDescription: {
+    fontSize: 11,
+    color: '#6b7280',
+    marginTop: 2,
+  },
+  reminderInput: {
+    width: 80,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    fontSize: 12,
+    color: '#111827',
+    textAlign: 'center',
+    backgroundColor: '#ffffff',
+    fontWeight: '600',
+  },
+  saveButton: {
+    marginTop: 24,
+    marginHorizontal: 20,
   },
   logoutButton: {
     marginTop: 24,
@@ -568,82 +537,6 @@ const styles = StyleSheet.create({
   navLabelActive: {
     color: '#2563eb',
     fontWeight: '600',
-  },
-  paymentContainer: {
-    paddingVertical: 8,
-  },
-  inputGroup: {
-    marginBottom: 16,
-  },
-  inputLabel: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#6b7280',
-    marginBottom: 8,
-  },
-  amountDisplay: {
-    backgroundColor: '#f9fafb',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  amountText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111827',
-  },
-  emailInput: {
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    fontSize: 14,
-    color: '#111827',
-  },
-  paymentMethodDisplay: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#2563eb',
-    backgroundColor: '#eff6ff',
-    gap: 8,
-  },
-  paymentMethodLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#2563eb',
-  },
-  paymentButton: {
-    marginTop: 8,
-    width: '100%',
-  },
-  paidStatusContainer: {
-    marginTop: 8,
-    width: '100%',
-  },
-  paidStatusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#dcfce7',
-    borderWidth: 1,
-    borderColor: '#22c55e',
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    gap: 8,
-  },
-  paidStatusText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#16a34a',
   },
 });
 

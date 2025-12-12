@@ -94,12 +94,6 @@ const AddCourseScreen = ({ navigation, route }) => {
   const [courseRepresentativeName, setCourseRepresentativeName] = useState(
     getField('courseRepresentativeName', 'course_rep_name')
   );
-  const [allowedPhoneNumbers, setAllowedPhoneNumbers] = useState(() => {
-    // Load from editing course if available
-    const numbers = editingCourse?.allowed_phone_numbers || editingCourse?.allowedPhoneNumbers || [];
-    return Array.isArray(numbers) ? numbers : [];
-  });
-  const [phoneNumberInput, setPhoneNumberInput] = useState('');
   
   // Time picker states - track which day and which time (start/end) is being edited
   const [timePickerState, setTimePickerState] = useState({
@@ -316,50 +310,6 @@ const AddCourseScreen = ({ navigation, route }) => {
     ]);
   };
 
-  const handleAddPhoneNumber = () => {
-    const trimmed = phoneNumberInput.trim();
-    if (!trimmed) {
-      Alert.alert('Validation Error', 'Please enter a phone number');
-      return;
-    }
-
-    // Parse comma-separated phone numbers
-    const phoneNumbers = trimmed
-      .split(',')
-      .map(num => num.trim())
-      .filter(num => num.length > 0);
-
-    if (phoneNumbers.length === 0) {
-      Alert.alert('Validation Error', 'Please enter at least one phone number');
-      return;
-    }
-
-    // Add new phone numbers (skip duplicates)
-    const newNumbers = phoneNumbers.filter(num => !allowedPhoneNumbers.includes(num));
-    const duplicates = phoneNumbers.filter(num => allowedPhoneNumbers.includes(num));
-
-    if (newNumbers.length > 0) {
-      setAllowedPhoneNumbers([...allowedPhoneNumbers, ...newNumbers]);
-    }
-
-    if (duplicates.length > 0) {
-      Alert.alert(
-        'Duplicate Numbers',
-        `The following numbers were already added: ${duplicates.join(', ')}`
-      );
-    } else if (newNumbers.length > 0) {
-      // Show success message if multiple numbers were added
-      if (newNumbers.length > 1) {
-        Alert.alert('Success', `Added ${newNumbers.length} phone numbers`);
-      }
-    }
-
-    setPhoneNumberInput('');
-  };
-
-  const handleRemovePhoneNumber = (phoneNumber) => {
-    setAllowedPhoneNumbers(allowedPhoneNumbers.filter(num => num !== phoneNumber));
-  };
 
   const handleSave = async () => {
     if (!validateForm()) {
@@ -394,7 +344,6 @@ const AddCourseScreen = ({ navigation, route }) => {
         indexTo: indexTo.trim(),
         courseRepName: courseRepresentativeName.trim(),
         ...(editingCourse && { editType }), // Include edit type when editing
-        allowedPhoneNumbers, // Include allowed phone numbers for both create and update
       };
 
       if (editingCourse) {
@@ -645,50 +594,6 @@ const AddCourseScreen = ({ navigation, route }) => {
               placeholderTextColor="#9ca3af"
             />
           </View>
-
-          {/* Allowed Phone Numbers */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Allowed Phone Numbers {!editingCourse && '(Optional)'}</Text>
-            <Text style={styles.phoneNumberDescription}>
-              {!editingCourse 
-                ? 'Add phone numbers of students who has made payment. You can paste multiple numbers separated by commas.'
-                : 'Manage phone numbers of students who can enroll using the course code. You can paste multiple numbers separated by commas.'}
-            </Text>
-              <View style={styles.phoneNumberInputContainer}>
-                <TextInput
-                  style={styles.phoneNumberInput}
-                  placeholder="Enter phone numbers (separated by commas) or paste multiple numbers"
-                  value={phoneNumberInput}
-                  onChangeText={setPhoneNumberInput}
-                  keyboardType="default"
-                  placeholderTextColor="#9ca3af"
-                  multiline
-                  numberOfLines={4}
-                  textAlignVertical="top"
-                />
-                <TouchableOpacity
-                  style={styles.addPhoneButton}
-                  onPress={handleAddPhoneNumber}
-                >
-                  <Ionicons name="add" size={20} color="#2563eb" />
-                </TouchableOpacity>
-              </View>
-              {allowedPhoneNumbers.length > 0 && (
-                <View style={styles.phoneNumberList}>
-                  {allowedPhoneNumbers.map((phoneNumber, index) => (
-                    <View key={index} style={styles.phoneNumberTag}>
-                      <Text style={styles.phoneNumberTagText}>{phoneNumber}</Text>
-                      <TouchableOpacity
-                        style={styles.removePhoneButton}
-                        onPress={() => handleRemovePhoneNumber(phoneNumber)}
-                      >
-                        <Ionicons name="close-circle" size={18} color="#dc2626" />
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                </View>
-              )}
-            </View>
 
           {/* Edit Type Selector - Only show when editing */}
           {editingCourse && (
@@ -1034,65 +939,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6b7280',
     lineHeight: 16,
-  },
-  phoneNumberDescription: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginBottom: 12,
-    lineHeight: 18,
-  },
-  phoneNumberInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-  },
-  phoneNumberInput: {
-    flex: 1,
-    minHeight: 100,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    backgroundColor: '#f9fafb',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    fontSize: 14,
-    color: '#111827',
-    textAlignVertical: 'top',
-  },
-  addPhoneButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 8,
-    backgroundColor: '#eff6ff',
-    borderWidth: 1,
-    borderColor: '#dbeafe',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  phoneNumberList: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  phoneNumberTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#eff6ff',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#dbeafe',
-    gap: 8,
-  },
-  phoneNumberTagText: {
-    fontSize: 13,
-    color: '#1e40af',
-    fontWeight: '500',
-  },
-  removePhoneButton: {
-    padding: 2,
   },
   saveButton: {
     marginTop: 8,

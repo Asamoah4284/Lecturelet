@@ -23,8 +23,22 @@
       "package": "com.LectureLet.app"
     },
     "web": {},
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#2563eb",
+          "sounds": []
+        }
+      ]
+    ],
     "extra": {
-      "apiUrl": "http://172.20.10.8:3000/api"
-    }
+      "apiUrl": "http://10.48.213.72:3000/api",
+      "eas": {
+        "projectId": "ea913b88-c870-4e26-90b7-87661d3890f0"
+      }
+    },
+    "owner": "asamoah4284"
   }
 }

@@ -1,6 +1,6 @@
 const express = require('express');
 const { body, param } = require('express-validator');
-const { Notification, Course } = require('../models');
+const { Notification, Course, User } = require('../models');
 const { authenticate, authorize } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 
@@ -205,6 +205,82 @@ router.delete('/', authenticate, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to delete notifications',
+    });
+  }
+});
+
+/**
+ * @route   POST /api/notifications/register-token
+ * @desc    Register or update push notification token for current user
+ * @access  Private
+ */
+router.post(
+  '/register-token',
+  authenticate,
+  [
+    body('pushToken')
+      .trim()
+      .notEmpty()
+      .withMessage('Push token is required'),
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      const { pushToken } = req.body;
+      // req.user.id is the string ID from toPublicJSON()
+      const user = await User.findById(req.user.id);
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found',
+        });
+      }
+
+      await user.updatePushToken(pushToken);
+
+      res.json({
+        success: true,
+        message: 'Push token registered successfully',
+      });
+    } catch (error) {
+      console.error('Register push token error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to register push token',
+      });
+    }
+  }
+);
+
+/**
+ * @route   DELETE /api/notifications/token
+ * @desc    Remove push notification token for current user
+ * @access  Private
+ */
+router.delete('/token', authenticate, async (req, res) => {
+  try {
+    // req.user.id is the string ID from toPublicJSON()
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    await user.updatePushToken(null);
+
+    res.json({
+      success: true,
+      message: 'Push token removed successfully',
+    });
+  } catch (error) {
+    console.error('Remove push token error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to remove push token',
     });
   }
 });

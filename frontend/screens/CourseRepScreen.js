@@ -9,10 +9,14 @@ import {
   ActivityIndicator,
   RefreshControl,
   Platform,
+  Alert,
+  Modal,
+  TextInput,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import Button from '../components/Button';
 import { getApiUrl } from '../config/api';
 
@@ -21,6 +25,17 @@ const CourseRepScreen = ({ navigation }) => {
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [selectedCourse, setSelectedCourse] = useState(null);
+  const [notificationType, setNotificationType] = useState(null); // 'quiz' or 'assignment'
+  const [quizTitle, setQuizTitle] = useState('');
+  const [quizDate, setQuizDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [quizTime, setQuizTime] = useState('');
+  const [quizVenue, setQuizVenue] = useState('');
+  const [assignmentTitle, setAssignmentTitle] = useState('');
+  const [assignmentDescription, setAssignmentDescription] = useState('');
+  const [sendingNotification, setSendingNotification] = useState(false);
 
   // Load user data and courses on mount
   useEffect(() => {
@@ -98,6 +113,139 @@ const CourseRepScreen = ({ navigation }) => {
   const onRefresh = () => {
     setRefreshing(true);
     loadCourses();
+  };
+
+  const handleNotificationPress = (course) => {
+    setSelectedCourse(course);
+    setShowNotificationModal(true);
+    setNotificationType(null);
+    // Reset form fields
+    setQuizTitle('');
+    setQuizDate(new Date());
+    setQuizTime('');
+    setQuizVenue('');
+    setAssignmentTitle('');
+    setAssignmentDescription('');
+    setShowDatePicker(false);
+  };
+
+  const closeNotificationModal = () => {
+    setShowNotificationModal(false);
+    setSelectedCourse(null);
+    setNotificationType(null);
+    setQuizTitle('');
+    setQuizDate(new Date());
+    setQuizTime('');
+    setQuizVenue('');
+    setAssignmentTitle('');
+    setAssignmentDescription('');
+    setShowDatePicker(false);
+  };
+
+  const formatDate = (date) => {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const dayName = days[date.getDay()];
+    const month = months[date.getMonth()];
+    const day = date.getDate();
+    const year = date.getFullYear();
+    return `${dayName}, ${month} ${day}, ${year}`;
+  };
+
+  const formatDateShort = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const handleDateChange = (event, selectedDate) => {
+    const currentDate = selectedDate || quizDate;
+    setShowDatePicker(Platform.OS === 'ios');
+    
+    if (Platform.OS === 'android') {
+      if (event.type === 'set' && selectedDate) {
+        setQuizDate(selectedDate);
+      }
+      setShowDatePicker(false);
+    } else {
+      // iOS
+      if (selectedDate) {
+        setQuizDate(selectedDate);
+      }
+    }
+  };
+
+  const sendNotification = async () => {
+    if (!selectedCourse) return;
+
+    let title = '';
+    let message = '';
+
+    if (notificationType === 'quiz') {
+      if (!quizTitle.trim() || !quizTime.trim() || !quizVenue.trim()) {
+        Alert.alert('Error', 'Please fill in all quiz fields');
+        return;
+      }
+      title = `Quiz: ${quizTitle}`;
+      const formattedDate = formatDate(quizDate);
+      message = `A quiz has been scheduled for ${quizTitle}.\n\nDate: ${formattedDate}\nTime: ${quizTime}\nVenue: ${quizVenue}`;
+    } else if (notificationType === 'assignment') {
+      if (!assignmentTitle.trim() || !assignmentDescription.trim()) {
+        Alert.alert('Error', 'Please fill in all assignment fields');
+        return;
+      }
+      title = `Assignment: ${assignmentTitle}`;
+      message = assignmentDescription;
+    } else {
+      Alert.alert('Error', 'Please select a notification type');
+      return;
+    }
+
+    try {
+      setSendingNotification(true);
+      const token = await AsyncStorage.getItem('@auth_token');
+      if (!token) {
+        Alert.alert('Error', 'Authentication required');
+        return;
+      }
+
+      const courseId = selectedCourse.id || selectedCourse._id;
+      const response = await fetch(getApiUrl('notifications/send'), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          courseId,
+          title,
+          message,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        Alert.alert(
+          'Success',
+          `Notification sent to ${data.data.recipientCount} students`,
+          [
+            {
+              text: 'OK',
+              onPress: closeNotificationModal,
+            },
+          ]
+        );
+      } else {
+        Alert.alert('Error', data.message || 'Failed to send notification');
+      }
+    } catch (error) {
+      console.error('Error sending notification:', error);
+      Alert.alert('Error', 'Failed to send notification. Please try again.');
+    } finally {
+      setSendingNotification(false);
+    }
   };
 
   const formatDays = (days) => {
@@ -188,56 +336,38 @@ const CourseRepScreen = ({ navigation }) => {
               };
               
               return (
-                <TouchableOpacity
-                  key={course.id || course._id}
-                  style={styles.courseCard}
-                  onPress={() => navigation.navigate('AddCourse', { course: courseForEdit })}
-                >
-                  <View style={styles.courseHeader}>
-                    <View style={styles.courseIconContainer}>
-                      <Ionicons name="book" size={24} color="#2563eb" />
-                    </View>
-                    <View style={styles.courseInfo}>
-                      <Text style={styles.courseName}>{course.course_name || course.courseName}</Text>
-                      <Text style={styles.courseCode}>{course.course_code || course.courseCode}</Text>
-                    </View>
-                    <View style={styles.codeBadge}>
-                      <Text style={styles.codeBadgeText}>{course.unique_code || course.uniqueCode}</Text>
-                    </View>
-                  </View>
-                  <View style={styles.courseDetails}>
-                    <View style={styles.detailRow}>
-                      <Ionicons name="time-outline" size={16} color="#6b7280" />
-                      <Text style={styles.detailText}>
-                        {formatTime(course.start_time || course.startTime, course.end_time || course.endTime)}
-                      </Text>
-                    </View>
-                    <View style={styles.detailRow}>
-                      <Ionicons name="calendar-outline" size={16} color="#6b7280" />
-                      <Text style={styles.detailText}>{formatDays(course.days)}</Text>
-                    </View>
-                    {course.venue && (
-                      <View style={styles.detailRow}>
-                        <Ionicons name="location-outline" size={16} color="#6b7280" />
-                        <Text style={styles.detailText}>{course.venue}</Text>
+                <View key={course.id || course._id} style={styles.courseCardContainer}>
+                  <View style={styles.courseCard}>
+                    <View style={styles.courseCardContent}>
+                      <View style={styles.courseIconContainer}>
+                        <Ionicons name="book" size={20} color="#2563eb" />
                       </View>
-                    )}
-                  </View>
-                  <View style={styles.courseFooter}>
-                    <View style={styles.studentCount}>
-                      <Ionicons name="people-outline" size={16} color="#6b7280" />
-                      <Text style={styles.studentCountText}>
-                        {course.student_count || 0} {course.student_count === 1 ? 'student' : 'students'}
-                      </Text>
+                      <View style={styles.courseInfo}>
+                        <Text style={styles.courseName} numberOfLines={1}>
+                          {course.course_name || course.courseName}
+                        </Text>
+                        <Text style={styles.courseCode}>{course.course_code || course.courseCode}</Text>
+                      </View>
+                      <View style={styles.codeBadge}>
+                        <Text style={styles.codeBadgeText}>{course.unique_code || course.uniqueCode}</Text>
+                      </View>
                     </View>
+                  </View>
+                  <View style={styles.actionButtons}>
                     <TouchableOpacity
-                      style={styles.viewButton}
-                      onPress={() => navigation.navigate('CourseStudents', { course })}
+                      style={styles.editButton}
+                      onPress={() => navigation.navigate('AddCourse', { course: courseForEdit })}
                     >
-                      <Text style={styles.viewButtonText}>View</Text>
+                      <Ionicons name="create-outline" size={18} color="#2563eb" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.notificationButton}
+                      onPress={() => handleNotificationPress(course)}
+                    >
+                      <Ionicons name="notifications-outline" size={18} color="#2563eb" />
                     </TouchableOpacity>
                   </View>
-                </TouchableOpacity>
+                </View>
               );
             })}
             {courses.length > 5 && (
@@ -311,6 +441,195 @@ const CourseRepScreen = ({ navigation }) => {
           <Text style={styles.navLabel}>Settings</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Notification Modal */}
+      <Modal
+        visible={showNotificationModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={closeNotificationModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Send Notification</Text>
+              <TouchableOpacity onPress={closeNotificationModal}>
+                <Ionicons name="close" size={24} color="#6b7280" />
+              </TouchableOpacity>
+            </View>
+
+            {!notificationType ? (
+              <View style={styles.notificationTypeContainer}>
+                <Text style={styles.modalSubtitle}>
+                  Select notification type for {selectedCourse?.course_name || selectedCourse?.courseName}
+                </Text>
+                <TouchableOpacity
+                  style={styles.typeButton}
+                  onPress={() => setNotificationType('quiz')}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.typeButtonCard}>
+                    <View style={[styles.typeButtonIcon, styles.quizIconContainer]}>
+                      <Ionicons name="document-text" size={22} color="#ffffff" />
+                    </View>
+                    <View style={styles.typeButtonContent}>
+                      <Text style={styles.typeButtonTitle}>Quiz</Text>
+                      <Text style={styles.typeButtonDescription}>
+                        Notify students about an upcoming quiz with date, time, and venue
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.typeButton}
+                  onPress={() => setNotificationType('assignment')}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.typeButtonCard}>
+                    <View style={[styles.typeButtonIcon, styles.assignmentIconContainer]}>
+                      <Ionicons name="clipboard" size={22} color="#ffffff" />
+                    </View>
+                    <View style={styles.typeButtonContent}>
+                      <Text style={styles.typeButtonTitle}>Assignment</Text>
+                      <Text style={styles.typeButtonDescription}>
+                        Notify students about a new assignment
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                  </View>
+                </TouchableOpacity>
+              </View>
+            ) : notificationType === 'quiz' ? (
+              <ScrollView style={styles.formContainer} showsVerticalScrollIndicator={false}>
+                <Text style={styles.formLabel}>Quiz Title *</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="e.g., Midterm Exam, Chapter 5 Quiz"
+                  value={quizTitle}
+                  onChangeText={setQuizTitle}
+                  placeholderTextColor="#9ca3af"
+                />
+
+                <Text style={styles.formLabel}>Date *</Text>
+                <TouchableOpacity
+                  style={styles.datePickerButton}
+                  onPress={() => setShowDatePicker(true)}
+                >
+                  <View style={styles.datePickerContent}>
+                    <Ionicons name="calendar-outline" size={20} color="#2563eb" />
+                    <Text style={styles.datePickerText}>
+                      {formatDate(quizDate)}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                </TouchableOpacity>
+                {showDatePicker && (
+                  <View>
+                    <DateTimePicker
+                      value={quizDate}
+                      mode="date"
+                      display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                      onChange={handleDateChange}
+                      minimumDate={new Date()}
+                    />
+                    {Platform.OS === 'ios' && (
+                      <TouchableOpacity
+                        style={styles.iosDatePickerDoneButton}
+                        onPress={() => setShowDatePicker(false)}
+                      >
+                        <Text style={styles.iosDatePickerDoneText}>Done</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+
+                <Text style={styles.formLabel}>Time *</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="e.g., 10:00 AM - 11:30 AM"
+                  value={quizTime}
+                  onChangeText={setQuizTime}
+                  placeholderTextColor="#9ca3af"
+                />
+
+                <Text style={styles.formLabel}>Venue *</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="e.g., SWLT, 18"
+                  value={quizVenue}
+                  onChangeText={setQuizVenue}
+                  placeholderTextColor="#9ca3af"
+                />
+
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    style={styles.cancelButton}
+                    onPress={() => setNotificationType(null)}
+                  >
+                    <Text style={styles.cancelButtonText}>Back</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.sendButton, sendingNotification && styles.sendButtonDisabled]}
+                    onPress={sendNotification}
+                    disabled={sendingNotification}
+                  >
+                    {sendingNotification ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : (
+                      <Text style={styles.sendButtonText}>Send Notification</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            ) : (
+              <ScrollView style={styles.formContainer} showsVerticalScrollIndicator={false}>
+                <Text style={styles.formLabel}>Assignment Title *</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="e.g., Assignment 1, Project Submission"
+                  value={assignmentTitle}
+                  onChangeText={setAssignmentTitle}
+                  placeholderTextColor="#9ca3af"
+                />
+
+                <Text style={styles.formLabel}>Description *</Text>
+                <TextInput
+                  style={[styles.textInput, styles.textArea]}
+                  placeholder="Enter assignment details, requirements, and due date..."
+                  value={assignmentDescription}
+                  onChangeText={setAssignmentDescription}
+                  multiline
+                  numberOfLines={6}
+                  textAlignVertical="top"
+                  placeholderTextColor="#9ca3af"
+                />
+
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    style={styles.cancelButton}
+                    onPress={() => setNotificationType(null)}
+                  >
+                    <Text style={styles.cancelButtonText}>Back</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.sendButton, sendingNotification && styles.sendButtonDisabled]}
+                    onPress={sendNotification}
+                    disabled={sendingNotification}
+                  >
+                    {sendingNotification ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : (
+                      <Text style={styles.sendButtonText}>Send Notification</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -489,99 +808,249 @@ const styles = StyleSheet.create({
     color: '#6b7280',
   },
   coursesList: {
-    gap: 16,
+    gap: 12,
+  },
+  courseCardContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+    marginBottom: 12,
   },
   courseCard: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  courseCardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+  },
+  courseIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#eff6ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  courseInfo: {
+    flex: 1,
+    marginRight: 8,
+  },
+  courseName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  courseCode: {
+    fontSize: 11,
+    color: '#6b7280',
+  },
+  codeBadge: {
+    backgroundColor: '#f3f4f6',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  codeBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#2563eb',
+    letterSpacing: 0.5,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 12,
+  },
+  editButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#eff6ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+  },
+  notificationButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#eff6ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '90%',
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#6b7280',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  notificationTypeContainer: {
+    padding: 20,
+  },
+  typeButton: {
+    marginBottom: 12,
+  },
+  typeButtonCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#ffffff',
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
     borderColor: '#e5e7eb',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
   },
-  courseHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  courseIconContainer: {
+  typeButtonIcon: {
     width: 48,
     height: 48,
     borderRadius: 12,
-    backgroundColor: '#eff6ff',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
   },
-  courseInfo: {
+  quizIconContainer: {
+    backgroundColor: '#2563eb',
+  },
+  assignmentIconContainer: {
+    backgroundColor: '#10b981',
+  },
+  typeButtonContent: {
     flex: 1,
   },
-  courseName: {
+  typeButtonTitle: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#111827',
     marginBottom: 4,
   },
-  courseCode: {
+  typeButtonDescription: {
     fontSize: 12,
     color: '#6b7280',
   },
-  codeBadge: {
-    backgroundColor: '#f3f4f6',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+  formContainer: {
+    padding: 20,
   },
-  codeBadgeText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#2563eb',
-    letterSpacing: 1,
+  formLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 8,
+    marginTop: 12,
   },
-  courseDetails: {
-    marginBottom: 12,
-    gap: 8,
+  textInput: {
+    backgroundColor: '#f9fafb',
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 14,
+    color: '#111827',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    marginBottom: 8,
   },
-  detailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  detailText: {
-    fontSize: 12,
-    color: '#6b7280',
-  },
-  courseFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  textArea: {
+    height: 120,
     paddingTop: 12,
+  },
+  datePickerButton: {
+    backgroundColor: '#f9fafb',
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  datePickerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  datePickerText: {
+    fontSize: 14,
+    color: '#111827',
+    marginLeft: 10,
+  },
+  iosDatePickerDoneButton: {
+    alignSelf: 'flex-end',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    marginTop: 12,
+  },
+  iosDatePickerDoneText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2563eb',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 24,
+    paddingTop: 20,
     borderTopWidth: 1,
     borderTopColor: '#e5e7eb',
   },
-  studentCount: {
-    flexDirection: 'row',
+  cancelButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 10,
+    backgroundColor: '#f3f4f6',
     alignItems: 'center',
-    gap: 6,
   },
-  studentCountText: {
-    fontSize: 12,
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
     color: '#6b7280',
   },
-  viewButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#eff6ff',
+  sendButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 10,
+    backgroundColor: '#2563eb',
+    alignItems: 'center',
   },
-  viewButtonText: {
-    fontSize: 12,
+  sendButtonDisabled: {
+    opacity: 0.6,
+  },
+  sendButtonText: {
+    fontSize: 16,
     fontWeight: '600',
-    color: '#2563eb',
+    color: '#ffffff',
   },
   seeMoreButton: {
     flexDirection: 'row',

@@ -21,6 +21,7 @@ import CourseStudentsScreen from '../screens/CourseStudentsScreen';
 import StudentTimetableScreen from '../screens/StudentTimetableScreen';
 import CreateQuizScreen from '../screens/CreateQuizScreen';
 import CreateTutorialScreen from '../screens/CreateTutorialScreen';
+import CreateAssignmentScreen from '../screens/CreateAssignmentScreen';
 
 const Stack = createStackNavigator();
 
@@ -173,6 +174,11 @@ const AppNavigator = () => {
         <Stack.Screen
           name="CreateTutorial"
           component={CreateTutorialScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="CreateAssignment"
+          component={CreateAssignmentScreen}
           options={{ headerShown: false }}
         />
       </Stack.Navigator>

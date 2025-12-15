@@ -10,12 +10,14 @@ import {
   Alert,
   Platform,
   Modal,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Clipboard from 'expo-clipboard';
 import Button from '../components/Button';
 import { getApiUrl } from '../config/api';
 
@@ -302,12 +304,16 @@ const AddCourseScreen = ({ navigation, route }) => {
     return true;
   };
 
-  const copyToClipboard = (text) => {
-    // The code is selectable, so users can long-press to copy
-    // Show a message to guide them
-    Alert.alert('Copy Code', `Course Code: ${text}\n\nLong press the code above to copy it.`, [
-      { text: 'OK' }
-    ]);
+  const copyToClipboard = async (text) => {
+    try {
+      await Clipboard.setStringAsync(text);
+      Alert.alert('Copied!', 'Course code copied to clipboard', [
+        { text: 'OK' }
+      ]);
+    } catch (error) {
+      console.error('Error copying to clipboard:', error);
+      Alert.alert('Error', 'Failed to copy code. Please try selecting the text manually.');
+    }
   };
 
 
@@ -413,10 +419,18 @@ const AddCourseScreen = ({ navigation, route }) => {
         <View style={styles.headerSpacer} />
       </View>
 
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoidingView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
+        >
       
 
         {/* Form Title and Description */}
@@ -660,6 +674,7 @@ const AddCourseScreen = ({ navigation, route }) => {
           />
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* Course Code Modal */}
       <Modal
@@ -731,12 +746,16 @@ const styles = StyleSheet.create({
   headerSpacer: {
     width: 36,
   },
+  keyboardAvoidingView: {
+    flex: 1,
+  },
   scrollView: {
     flex: 1,
     backgroundColor: '#ffffff',
   },
   scrollContent: {
     paddingBottom: 32,
+    flexGrow: 1,
   },
   brandingSection: {
     alignItems: 'center',

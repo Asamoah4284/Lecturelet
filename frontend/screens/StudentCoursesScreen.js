@@ -214,71 +214,70 @@ const StudentCoursesScreen = ({ navigation }) => {
           </View>
         ) : filteredCourses.length > 0 ? (
           <View style={styles.coursesList}>
-            {filteredCourses.map((course) => (
-              <TouchableOpacity
-                key={course.id || course._id}
-                style={styles.courseCard}
-                activeOpacity={0.7}
-              >
-                <View style={styles.courseHeader}>
-                  <View style={styles.courseIconContainer}>
-                    <Ionicons name="book" size={24} color="#2563eb" />
-                  </View>
-                  <View style={styles.courseInfo}>
-                    <Text style={styles.courseName}>
-                      {course.course_name || course.courseName}
-                    </Text>
-                    <Text style={styles.courseCode}>
-                      {course.course_code || course.courseCode}
-                    </Text>
-                  </View>
-                  <View style={styles.codeBadge}>
-                    <Text style={styles.codeBadgeText}>
-                      {course.unique_code || course.uniqueCode}
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.courseDetails}>
-                  <View style={styles.detailRow}>
-                    <Ionicons name="time-outline" size={16} color="#6b7280" />
-                    <Text style={styles.detailText}>
-                      {formatTime(course.start_time || course.startTime, course.end_time || course.endTime)}
-                    </Text>
-                  </View>
-                  <View style={styles.detailRow}>
-                    <Ionicons name="calendar-outline" size={16} color="#6b7280" />
-                    <Text style={styles.detailText}>{formatDays(course.days)}</Text>
-                  </View>
-                  {course.venue && (
-                    <View style={styles.detailRow}>
-                      <Ionicons name="location-outline" size={16} color="#6b7280" />
-                      <Text style={styles.detailText}>{course.venue}</Text>
+            {filteredCourses.map((course) => {
+              const creditHours = course.credit_hours || course.creditHours || '0';
+              const studentRange = course.index_from && course.index_to 
+                ? `${course.index_from} - ${course.index_to}`
+                : course.index_from || 'N/A';
+              const instructorName = course.course_rep_name || course.courseRepName || course.creator_name || 'N/A';
+
+              return (
+                <View key={course.id || course._id} style={styles.courseCardWrapper}>
+                  <View style={styles.courseCard}>
+                    <View style={styles.courseCardLeftBorder} />
+                    <View style={styles.courseCardContent}>
+                      <View style={styles.courseHeader}>
+                        <View style={styles.courseTitleSection}>
+                          <Text style={styles.courseCodeText}>{course.course_code || course.courseCode}</Text>
+                          <Text style={styles.courseNameText}>{course.course_name || course.courseName}</Text>
+                        </View>
+                        <View style={styles.creditsBadge}>
+                          <Text style={styles.creditsBadgeText}>{creditHours} Credits</Text>
+                        </View>
+                      </View>
+                      <View style={styles.courseDetails}>
+                        <View style={styles.detailRow}>
+                          <Ionicons name="time-outline" size={16} color="#6b7280" />
+                          <Text style={styles.detailText}>
+                            {formatTime(course.start_time || course.startTime, course.end_time || course.endTime)}
+                          </Text>
+                        </View>
+                        {course.venue && (
+                          <View style={styles.detailRow}>
+                            <Ionicons name="location-outline" size={16} color="#6b7280" />
+                            <Text style={styles.detailText}>{course.venue}</Text>
+                          </View>
+                        )}
+                        <View style={styles.detailRow}>
+                          <Ionicons name="calendar-outline" size={16} color="#6b7280" />
+                          <Text style={styles.detailText}>{formatDays(course.days)}</Text>
+                        </View>
+                        <View style={styles.detailRow}>
+                          <Ionicons name="book-outline" size={16} color="#6b7280" />
+                          <Text style={styles.detailText}>By {instructorName}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.courseFooter}>
+                        <View style={styles.studentRangeBadge}>
+                          <Text style={styles.studentRangeText}>{studentRange}</Text>
+                        </View>
+                        <View style={styles.codeBadgeContainer}>
+                          <Text style={styles.codeLabel}>CODE</Text>
+                          <Text style={styles.codeValue}>{course.unique_code || course.uniqueCode}</Text>
+                        </View>
+                      </View>
                     </View>
-                  )}
-                  {course.creator_name && (
-                    <View style={styles.detailRow}>
-                      <Ionicons name="person-outline" size={16} color="#6b7280" />
-                      <Text style={styles.detailText}>Rep: {course.creator_name}</Text>
-                    </View>
-                  )}
-                </View>
-                <View style={styles.courseFooter}>
-                  <View style={styles.studentCount}>
-                    <Ionicons name="people-outline" size={16} color="#6b7280" />
-                    <Text style={styles.studentCountText}>
-                      {course.student_count || 0} {course.student_count === 1 ? 'student' : 'students'}
-                    </Text>
                   </View>
                   <TouchableOpacity
                     style={styles.unenrollButton}
                     onPress={() => handleUnenroll(course)}
+                    activeOpacity={0.7}
                   >
-                    <Ionicons name="exit-outline" size={16} color="#ef4444" />
-                    <Text style={styles.unenrollButtonText}>Unenroll</Text>
+                    <Ionicons name="trash-outline" size={16} color="#f87171" />
                   </TouchableOpacity>
                 </View>
-              </TouchableOpacity>
-            ))}
+              );
+            })}
           </View>
         ) : searchQuery.trim() ? (
           <View style={styles.emptyState}>
@@ -501,59 +500,69 @@ const styles = StyleSheet.create({
   coursesList: {
     gap: 16,
   },
+  courseCardWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
   courseCard: {
+    flex: 1,
     backgroundColor: '#ffffff',
     borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
     shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.02,
+    shadowRadius: 2,
+    elevation: 1,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  courseCardLeftBorder: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 5,
+    backgroundColor: '#60a5fa',
+  },
+  courseCardContent: {
+    padding: 12,
+    paddingLeft: 16,
   },
   courseHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
   },
-  courseIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: '#e0f2fe',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  courseInfo: {
+  courseTitleSection: {
     flex: 1,
   },
-  courseName: {
-    fontSize: 16,
+  courseCodeText: {
+    fontSize: 18,
     fontWeight: '700',
     color: '#111827',
-    marginBottom: 4,
+    marginBottom: 2,
   },
-  courseCode: {
-    fontSize: 13,
-    color: '#6b7280',
+  courseNameText: {
+    fontSize: 14,
+    fontWeight: '400',
+    color: '#111827',
   },
-  codeBadge: {
-    backgroundColor: '#f3f4f6',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+  creditsBadge: {
+    backgroundColor: '#d1fae5',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: 6,
   },
-  codeBadgeText: {
-    fontSize: 12,
+  creditsBadgeText: {
+    fontSize: 11,
     fontWeight: '600',
-    color: '#374151',
+    color: '#059669',
   },
   courseDetails: {
-    marginBottom: 12,
-    gap: 6,
+    marginBottom: 8,
+    gap: 4,
   },
   detailRow: {
     flexDirection: 'row',
@@ -561,38 +570,56 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   detailText: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#6b7280',
   },
   courseFooter: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-  },
-  studentCount: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    marginTop: 4,
   },
-  studentCountText: {
-    fontSize: 13,
-    color: '#6b7280',
-  },
-  unenrollButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
+  studentRangeBadge: {
+    backgroundColor: '#dbeafe',
+    paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 6,
+  },
+  studentRangeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#2563eb',
+  },
+  codeBadgeContainer: {
+    alignItems: 'flex-end',
+  },
+  codeLabel: {
+    fontSize: 9,
+    fontWeight: '400',
+    color: '#9ca3af',
+    marginBottom: 2,
+  },
+  codeValue: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#2563eb',
+    letterSpacing: 0.5,
+  },
+  unenrollButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 12,
     borderWidth: 1,
     borderColor: '#fecaca',
-    backgroundColor: '#fef2f2',
-  },
-  unenrollButtonText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#ef4444',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   bottomNav: {
     position: 'absolute',

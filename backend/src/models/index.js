@@ -3,6 +3,7 @@ const Course = require('./Course');
 const Enrollment = require('./Enrollment');
 const Notification = require('./Notification');
 const Payment = require('./Payment');
+const Quiz = require('./Quiz');
 
 module.exports = {
   User,
@@ -10,6 +11,7 @@ module.exports = {
   Enrollment,
   Notification,
   Payment,
+  Quiz,
 };
 
 

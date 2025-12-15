@@ -19,19 +19,24 @@ import { useUnreadNotifications } from '../hooks/useUnreadNotifications';
 const StudentHomeScreen = ({ navigation }) => {
   const [userName, setUserName] = useState('Student');
   const [enrolledCourses, setEnrolledCourses] = useState([]);
+  const [todaySchedule, setTodaySchedule] = useState([]);
+  const [upcomingQuizzes, setUpcomingQuizzes] = useState([]);
+  const [loadingQuizzes, setLoadingQuizzes] = useState(false);
   const { unreadCount } = useUnreadNotifications(navigation);
   const [loading, setLoading] = useState(true);
 
-  // Load user data and courses on mount
+  // Load user data and schedule on mount
   useEffect(() => {
     loadUserData();
-    loadCourses();
+    loadTodaySchedule();
+    loadUpcomingQuizzes();
   }, []);
 
-  // Reload courses when screen comes into focus
+  // Reload schedule when screen comes into focus
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
-      loadCourses();
+      loadTodaySchedule();
+      loadUpcomingQuizzes();
     });
     return unsubscribe;
   }, [navigation]);
@@ -50,7 +55,7 @@ const StudentHomeScreen = ({ navigation }) => {
     }
   };
 
-  const loadCourses = async () => {
+  const loadTodaySchedule = async () => {
     try {
       const token = await AsyncStorage.getItem('@auth_token');
       if (!token) {
@@ -58,24 +63,64 @@ const StudentHomeScreen = ({ navigation }) => {
         return;
       }
 
-      const response = await fetch(getApiUrl('enrollments/my-courses'), {
+      // Get today's date in the format needed
+      const today = new Date();
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const todayDayName = dayNames[today.getDay()];
+      const todayDateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+      // Fetch enrolled courses
+      const coursesResponse = await fetch(getApiUrl('enrollments/my-courses'), {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
         },
       });
 
-      const data = await response.json();
+      const coursesData = await coursesResponse.json();
+      const courses = coursesData.success ? (coursesData.data.courses || []) : [];
+      setEnrolledCourses(courses);
 
-      if (response.ok && data.success) {
-        setEnrolledCourses(data.data.courses || []);
-      } else {
-        console.error('Error loading courses:', data.message);
-        setEnrolledCourses([]);
-      }
+      // Build today's schedule from courses and their activities
+      const scheduleItems = [];
+
+      // Add regular lectures for today
+      courses.forEach((course) => {
+        const courseDays = course.days || [];
+        if (Array.isArray(courseDays) && courseDays.includes(todayDayName)) {
+          scheduleItems.push({
+            id: `lecture-${course.id || course._id}`,
+            type: 'lecture',
+            courseCode: course.course_code || course.courseCode,
+            courseName: course.course_name || course.courseName,
+            startTime: course.start_time || course.startTime,
+            endTime: course.end_time || course.endTime,
+            venue: course.venue,
+            creditHours: course.credit_hours || course.creditHours,
+            instructor: course.course_rep_name || course.courseRepName,
+            uniqueCode: course.unique_code || course.uniqueCode,
+            courseId: course.id || course._id,
+          });
+        }
+      });
+
+      // TODO: Fetch quizzes, tutorials, and assignments for today
+      // For now, we'll just show lectures. The API endpoints can be added later:
+      // - getApiUrl('quizzes/today')
+      // - getApiUrl('tutorials/today')
+      // - getApiUrl('assignments/today')
+
+      // Sort by start time
+      scheduleItems.sort((a, b) => {
+        const timeA = a.startTime || '';
+        const timeB = b.startTime || '';
+        return timeA.localeCompare(timeB);
+      });
+
+      setTodaySchedule(scheduleItems);
     } catch (error) {
-      console.error('Error loading courses:', error);
-      setEnrolledCourses([]);
+      console.error('Error loading schedule:', error);
+      setTodaySchedule([]);
     } finally {
       setLoading(false);
     }
@@ -92,9 +137,10 @@ const StudentHomeScreen = ({ navigation }) => {
     return `${year}-${month}-${day} • ${dayName}`;
   };
 
-  const formatDays = (days) => {
-    if (!days || !Array.isArray(days)) return 'N/A';
-    return days.join(', ');
+  const getCurrentDayName = () => {
+    const date = new Date();
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return days[date.getDay()];
   };
 
   const formatTime = (startTime, endTime) => {
@@ -102,8 +148,113 @@ const StudentHomeScreen = ({ navigation }) => {
     return `${startTime} - ${endTime}`;
   };
 
-  // Show only first 3 courses on home screen
-  const displayedCourses = enrolledCourses.slice(0, 3);
+  const formatTimeDisplay = (startTime, endTime) => {
+    if (!startTime) return 'N/A';
+    if (!endTime) return startTime;
+    return `${startTime}-${endTime}`;
+  };
+
+  // Parse date from DD/MM/YYYY format
+  const parseDate = (dateStr) => {
+    if (!dateStr) return null;
+    const parts = dateStr.split('/');
+    if (parts.length !== 3) return null;
+    const day = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1; // Month is 0-indexed
+    const year = parseInt(parts[2], 10);
+    return new Date(year, month, day);
+  };
+
+  // Check if a date is today or in the future
+  const isUpcoming = (dateStr) => {
+    const quizDate = parseDate(dateStr);
+    if (!quizDate) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    quizDate.setHours(0, 0, 0, 0);
+    return quizDate >= today;
+  };
+
+  // Load upcoming quizzes for all enrolled courses
+  const loadUpcomingQuizzes = async () => {
+    try {
+      setLoadingQuizzes(true);
+      const token = await AsyncStorage.getItem('@auth_token');
+      if (!token) {
+        setLoadingQuizzes(false);
+        return;
+      }
+
+      // Get enrolled courses first
+      const coursesResponse = await fetch(getApiUrl('enrollments/my-courses'), {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      const coursesData = await coursesResponse.json();
+      const courses = coursesData.success ? (coursesData.data.courses || []) : [];
+
+      if (courses.length === 0) {
+        setUpcomingQuizzes([]);
+        setLoadingQuizzes(false);
+        return;
+      }
+
+      // Fetch quizzes for each enrolled course
+      const allQuizzes = [];
+      for (const course of courses) {
+        const courseId = course.id || course._id;
+        if (!courseId) continue;
+
+        try {
+          const quizzesResponse = await fetch(getApiUrl(`quizzes/course/${courseId}`), {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          });
+
+          const quizzesData = await quizzesResponse.json();
+          if (quizzesData.success && quizzesData.data.quizzes) {
+            allQuizzes.push(...quizzesData.data.quizzes);
+          }
+        } catch (error) {
+          console.error(`Error fetching quizzes for course ${courseId}:`, error);
+        }
+      }
+
+      // Filter for upcoming quizzes and sort by date
+      const upcoming = allQuizzes
+        .filter((quiz) => isUpcoming(quiz.date))
+        .map((quiz) => ({
+          id: quiz.id || quiz._id,
+          type: 'quiz',
+          quizName: quiz.quiz_name || quiz.quizName,
+          date: quiz.date,
+          time: quiz.time,
+          venue: quiz.venue,
+          topic: quiz.topic,
+          courseCode: quiz.course_code || quiz.courseCode,
+          courseName: quiz.course_name || quiz.courseName,
+          courseId: quiz.course_id || quiz.courseId,
+        }))
+        .sort((a, b) => {
+          const dateA = parseDate(a.date);
+          const dateB = parseDate(b.date);
+          if (!dateA || !dateB) return 0;
+          return dateA - dateB;
+        });
+
+      setUpcomingQuizzes(upcoming);
+    } catch (error) {
+      console.error('Error loading upcoming quizzes:', error);
+      setUpcomingQuizzes([]);
+    } finally {
+      setLoadingQuizzes(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -149,89 +300,163 @@ const StudentHomeScreen = ({ navigation }) => {
           </View>
         </TouchableOpacity>
 
+        {/* Upcoming Quizzes Section */}
+        {upcomingQuizzes.length > 0 && (
+          <>
+            <View style={styles.sectionHeader}>
+              <View>
+                <Text style={styles.sectionTitle}>Upcoming Quizzes</Text>
+                <Text style={styles.dayName}>{upcomingQuizzes.length} quiz{upcomingQuizzes.length !== 1 ? 'zes' : ''} scheduled</Text>
+              </View>
+            </View>
+            <View style={styles.quizzesList}>
+              {upcomingQuizzes.slice(0, 3).map((quiz) => (
+                <TouchableOpacity
+                  key={quiz.id}
+                  style={styles.quizCard}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.quizCardLeftBorder} />
+                  <View style={styles.quizCardContent}>
+                    <View style={styles.quizLeftColumn}>
+                      <View style={styles.quizBadgeContainer}>
+                        <View style={styles.quizBadge}>
+                          <Text style={styles.quizBadgeText}>QUIZ</Text>
+                        </View>
+                      </View>
+                      <Text style={styles.quizDate}>{quiz.date}</Text>
+                      <Text style={styles.quizTime}>{quiz.time}</Text>
+                    </View>
+                    <View style={styles.quizRightColumn}>
+                      <Text style={styles.quizName}>{quiz.quizName}</Text>
+                      <Text style={styles.quizCourseCode}>{quiz.courseCode}</Text>
+                      <Text style={styles.quizCourseName}>{quiz.courseName}</Text>
+                      <View style={styles.quizBadgesRow}>
+                        {quiz.venue && (
+                          <View style={styles.venueBadge}>
+                            <Ionicons name="location-outline" size={12} color="#2563eb" />
+                            <Text style={styles.venueBadgeText}>{quiz.venue}</Text>
+                          </View>
+                        )}
+                        {quiz.topic && (
+                          <View style={styles.topicBadge}>
+                            <Ionicons name="document-text-outline" size={12} color="#10b981" />
+                            <Text style={styles.topicBadgeText}>{quiz.topic}</Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {upcomingQuizzes.length > 3 && (
+              <TouchableOpacity
+                style={styles.viewMoreButton}
+                onPress={() => navigation.navigate('StudentCourses')}
+              >
+                <Text style={styles.viewMoreText}>View All {upcomingQuizzes.length} Quizzes</Text>
+                <Ionicons name="chevron-forward" size={16} color="#2563eb" />
+              </TouchableOpacity>
+            )}
+          </>
+        )}
+
         {/* Section Header */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>My Enrolled Courses</Text>
-          <TouchableOpacity onPress={() => navigation.navigate('StudentCourses')}>
+          <View>
+            <Text style={styles.sectionTitle}>Today's Schedule</Text>
+            <Text style={styles.dayName}>{getCurrentDayName()}</Text>
+          </View>
+          <TouchableOpacity onPress={() => navigation.navigate('StudentTimetable')}>
             <Text style={styles.seeAllText}>See All</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Courses List or Empty State */}
+        {/* Schedule List or Empty State */}
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#2563eb" />
-            <Text style={styles.loadingText}>Loading courses...</Text>
+            <Text style={styles.loadingText}>Loading schedule...</Text>
           </View>
-        ) : enrolledCourses.length === 0 ? (
+        ) : todaySchedule.length === 0 ? (
           <View style={styles.emptyState}>
             <View style={styles.emptyIconContainer}>
               <View style={styles.documentIcon}>
-                <Ionicons name="document-text" size={60} color="#ffffff" />
-                <View style={styles.questionMarkContainer}>
-                  <Ionicons name="help-circle" size={32} color="#ffffff" />
-                </View>
+                <Ionicons name="calendar-outline" size={60} color="#ffffff" />
               </View>
             </View>
-            <Text style={styles.emptyTitle}>No Enrolled Courses</Text>
+            <Text style={styles.emptyTitle}>No Schedule for Today</Text>
             <Text style={styles.emptyDescription}>
-              You haven't enrolled in any courses yet. Add a course to get started.
+              You don't have any classes or activities scheduled for today.
             </Text>
-            <Button
-              title="Add Course"
-              onPress={() => navigation.navigate('StudentAddCourse')}
-              variant="primary"
-              style={styles.createButton}
-            />
           </View>
         ) : (
-          <View style={styles.coursesList}>
-            {displayedCourses.map((course) => (
+          <View style={styles.scheduleList}>
+            {todaySchedule.map((item) => (
               <TouchableOpacity
-                key={course.id || course._id}
-                style={styles.courseCard}
+                key={item.id}
+                style={styles.scheduleCard}
                 activeOpacity={0.8}
               >
-                <View style={styles.courseCardContent}>
-                  <View style={styles.courseIconContainer}>
-                    <Ionicons name="book" size={20} color="#2563eb" />
-                  </View>
-                  <View style={styles.courseInfo}>
-                    <Text style={styles.courseName} numberOfLines={1}>
-                      {course.course_name || course.courseName}
+                <View style={styles.scheduleCardLeftBorder} />
+                <View style={styles.scheduleCardContent}>
+                  <View style={styles.scheduleLeftColumn}>
+                    <Text style={styles.scheduleTime}>
+                      {formatTimeDisplay(item.startTime, item.endTime)}
                     </Text>
-                    <View style={styles.courseMetaRow}>
-                      <Text style={styles.courseCode}>
-                        {course.course_code || course.courseCode}
-                      </Text>
-                      <View style={styles.separator} />
-                      <View style={styles.timeRow}>
-                        <Ionicons name="time-outline" size={12} color="#6b7280" />
-                        <Text style={styles.timeText}>
-                          {formatTime(course.start_time || course.startTime, course.end_time || course.endTime)}
-                        </Text>
+                    {item.type === 'quiz' && (
+                      <View style={styles.quizBadge}>
+                        <Text style={styles.quizBadgeText}>QUIZ</Text>
                       </View>
-                    </View>
+                    )}
+                    {item.type === 'tutorial' && (
+                      <View style={styles.tutorialBadge}>
+                        <Text style={styles.tutorialBadgeText}>TUTORIAL</Text>
+                      </View>
+                    )}
+                    {item.type === 'assignment' && (
+                      <View style={styles.assignmentBadge}>
+                        <Text style={styles.assignmentBadgeText}>ASSIGNMENT</Text>
+                      </View>
+                    )}
                   </View>
-                  <View style={styles.codeBadge}>
-                    <Text style={styles.codeBadgeText}>
-                      {course.unique_code || course.uniqueCode}
-                    </Text>
+                  <View style={styles.scheduleRightColumn}>
+                    <Text style={styles.scheduleCourseCode}>{item.courseCode}</Text>
+                    <Text style={styles.scheduleCourseName}>{item.courseName}</Text>
+                    <View style={styles.scheduleBadgesRow}>
+                      {item.venue && (
+                        <View style={styles.venueBadge}>
+                          <Ionicons name="location-outline" size={12} color="#2563eb" />
+                          <Text style={styles.venueBadgeText}>{item.venue}</Text>
+                        </View>
+                      )}
+                      {item.creditHours && (
+                        <View style={styles.creditsBadge}>
+                          <Text style={styles.creditsBadgeText}>{item.creditHours} Credits</Text>
+                        </View>
+                      )}
+                      {item.duration && (
+                        <View style={styles.durationBadge}>
+                          <Text style={styles.durationBadgeText}>{item.duration}</Text>
+                        </View>
+                      )}
+                    </View>
+                    <View style={styles.scheduleDetailsRow}>
+                      {item.instructor && (
+                        <Text style={styles.scheduleDetailText}>Instructor: {item.instructor}</Text>
+                      )}
+                      {item.uniqueCode && (
+                        <Text style={styles.scheduleDetailText}>Code: {item.uniqueCode}</Text>
+                      )}
+                      {item.date && (
+                        <Text style={styles.scheduleDetailText}>Date: {item.date}</Text>
+                      )}
+                    </View>
                   </View>
                 </View>
               </TouchableOpacity>
             ))}
-            {enrolledCourses.length > 3 && (
-              <TouchableOpacity
-                style={styles.seeMoreButton}
-                onPress={() => navigation.navigate('StudentCourses')}
-              >
-                <Text style={styles.seeMoreText}>
-                  View all {enrolledCourses.length} courses
-                </Text>
-                <Ionicons name="chevron-forward" size={20} color="#2563eb" />
-              </TouchableOpacity>
-            )}
           </View>
         )}
       </ScrollView>
@@ -383,11 +608,17 @@ const styles = StyleSheet.create({
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
+    alignItems: 'flex-start',
+    marginBottom: 16,
   },
   sectionTitle: {
     fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  dayName: {
+    fontSize: 14,
     fontWeight: '700',
     color: '#111827',
   },
@@ -449,97 +680,148 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6b7280',
   },
-  coursesList: {
+  scheduleList: {
     gap: 12,
   },
-  courseCard: {
+  scheduleCard: {
     backgroundColor: '#ffffff',
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    shadowColor: '#2563eb',
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.02,
+    shadowRadius: 2,
+    elevation: 1,
     overflow: 'hidden',
+    position: 'relative',
   },
-  courseCardContent: {
+  scheduleCardLeftBorder: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+    backgroundColor: '#60a5fa',
+  },
+  scheduleCardContent: {
     flexDirection: 'row',
-    alignItems: 'center',
-    padding: 14,
+    padding: 16,
+    paddingLeft: 20,
   },
-  courseIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    backgroundColor: '#eff6ff',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-    borderWidth: 1,
-    borderColor: '#dbeafe',
+  scheduleLeftColumn: {
+    width: 80,
+    alignItems: 'flex-start',
   },
-  courseInfo: {
-    flex: 1,
-    marginRight: 8,
-  },
-  courseName: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 6,
-  },
-  courseMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  courseCode: {
+  scheduleTime: {
     fontSize: 12,
-    color: '#6b7280',
-    fontWeight: '500',
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 8,
   },
-  separator: {
-    width: 1,
-    height: 12,
-    backgroundColor: '#e5e7eb',
-  },
-  timeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  timeText: {
-    fontSize: 11,
-    color: '#6b7280',
-  },
-  codeBadge: {
-    backgroundColor: '#f3f4f6',
+  quizBadge: {
+    backgroundColor: '#2563eb',
     paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 6,
-    minWidth: 50,
-    alignItems: 'center',
+    paddingVertical: 4,
+    borderRadius: 4,
+    marginTop: 4,
   },
-  codeBadgeText: {
-    fontSize: 11,
+  quizBadgeText: {
+    fontSize: 10,
     fontWeight: '700',
-    color: '#374151',
+    color: '#ffffff',
     letterSpacing: 0.5,
   },
-  seeMoreButton: {
+  tutorialBadge: {
+    backgroundColor: '#10b981',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    marginTop: 4,
+  },
+  tutorialBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#ffffff',
+    letterSpacing: 0.5,
+  },
+  assignmentBadge: {
+    backgroundColor: '#f97316',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    marginTop: 4,
+  },
+  assignmentBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#ffffff',
+    letterSpacing: 0.5,
+  },
+  scheduleRightColumn: {
+    flex: 1,
+  },
+  scheduleCourseCode: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  scheduleCourseName: {
+    fontSize: 14,
+    fontWeight: '400',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  scheduleBadgesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 8,
+  },
+  venueBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    marginTop: 8,
+    backgroundColor: '#dbeafe',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    gap: 4,
   },
-  seeMoreText: {
-    fontSize: 14,
-    color: '#2563eb',
+  venueBadgeText: {
+    fontSize: 11,
     fontWeight: '600',
-    marginRight: 4,
+    color: '#2563eb',
+  },
+  creditsBadge: {
+    backgroundColor: '#d1fae5',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  creditsBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#10b981',
+  },
+  durationBadge: {
+    backgroundColor: '#dbeafe',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  durationBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#2563eb',
+  },
+  scheduleDetailsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  scheduleDetailText: {
+    fontSize: 11,
+    color: '#6b7280',
+    fontWeight: '400',
   },
   bottomNav: {
     position: 'absolute',
@@ -598,6 +880,107 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 10,
     fontWeight: '700',
+  },
+  quizzesList: {
+    gap: 12,
+    marginBottom: 24,
+  },
+  quizCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.02,
+    shadowRadius: 2,
+    elevation: 1,
+    overflow: 'hidden',
+    position: 'relative',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  quizCardLeftBorder: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+    backgroundColor: '#2563eb',
+  },
+  quizCardContent: {
+    flexDirection: 'row',
+    padding: 16,
+    paddingLeft: 20,
+  },
+  quizLeftColumn: {
+    width: 100,
+    alignItems: 'flex-start',
+  },
+  quizBadgeContainer: {
+    marginBottom: 8,
+  },
+  quizDate: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  quizTime: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#6b7280',
+  },
+  quizRightColumn: {
+    flex: 1,
+  },
+  quizName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  quizCourseCode: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2563eb',
+    marginBottom: 2,
+  },
+  quizCourseName: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: '#6b7280',
+    marginBottom: 8,
+  },
+  quizBadgesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  topicBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#d1fae5',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    gap: 4,
+  },
+  topicBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#10b981',
+  },
+  viewMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    marginBottom: 24,
+  },
+  viewMoreText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2563eb',
+    marginRight: 4,
   },
 });
 

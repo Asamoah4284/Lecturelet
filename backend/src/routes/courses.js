@@ -3,6 +3,7 @@ const { body, param, query } = require('express-validator');
 const { Course, Enrollment, Notification, User } = require('../models');
 const { authenticate, authorize } = require('../middleware/auth');
 const validate = require('../middleware/validate');
+const { sendBulkPushNotifications } = require('../utils/pushNotificationService');
 
 const router = express.Router();
 
@@ -348,6 +349,7 @@ router.put(
         indexTo,
         courseRepName,
         editType, // 'temporary' or 'permanent'
+        allowedPhoneNumbers,
       } = req.body;
 
       const updateData = {};
@@ -381,53 +383,177 @@ router.put(
           : [];
       }
 
+      // Get current course data before updating to detect changes
+      const currentCourse = await Course.findById(courseId);
+      if (!currentCourse) {
+        return res.status(404).json({
+          success: false,
+          message: 'Course not found',
+        });
+      }
+
       // Handle temporary vs permanent edits
       if (editType === 'temporary') {
-        // Get current course to save as original values
-        const currentCourse = await Course.findById(courseId);
-        if (currentCourse) {
-          // Save current values as original (only if not already saved)
-          // If originalValues already exists, keep it (don't overwrite)
-          if (!currentCourse.originalValues) {
-            updateData.originalValues = {
-              courseName: currentCourse.courseName,
-              courseCode: currentCourse.courseCode,
-              days: currentCourse.days,
-              startTime: currentCourse.startTime,
-              endTime: currentCourse.endTime,
-              dayTimes: currentCourse.dayTimes,
-              venue: currentCourse.venue,
-              creditHours: currentCourse.creditHours,
-              indexFrom: currentCourse.indexFrom,
-              indexTo: currentCourse.indexTo,
-              courseRepName: currentCourse.courseRepName,
-            };
-          }
-          // Set expiration to 24 hours from now
-          const expirationDate = new Date();
-          expirationDate.setHours(expirationDate.getHours() + 24);
-          updateData.temporaryEditExpiresAt = expirationDate;
+        // Save current values as original (only if not already saved)
+        // If originalValues already exists, keep it (don't overwrite)
+        if (!currentCourse.originalValues) {
+          updateData.originalValues = {
+            courseName: currentCourse.courseName,
+            courseCode: currentCourse.courseCode,
+            days: currentCourse.days,
+            startTime: currentCourse.startTime,
+            endTime: currentCourse.endTime,
+            dayTimes: currentCourse.dayTimes,
+            venue: currentCourse.venue,
+            creditHours: currentCourse.creditHours,
+            indexFrom: currentCourse.indexFrom,
+            indexTo: currentCourse.indexTo,
+            courseRepName: currentCourse.courseRepName,
+          };
         }
+        // Set expiration to 24 hours from now
+        const expirationDate = new Date();
+        expirationDate.setHours(expirationDate.getHours() + 24);
+        updateData.temporaryEditExpiresAt = expirationDate;
       } else {
         // Permanent edit - clear temporary edit fields and apply changes permanently
         updateData.temporaryEditExpiresAt = null;
         updateData.originalValues = null;
       }
 
+      // Detect what changed for notification
+      const changes = [];
+      
+      if (updateData.courseName && updateData.courseName !== currentCourse.courseName) {
+        changes.push(`Course name: ${currentCourse.courseName} → ${updateData.courseName}`);
+      }
+      
+      if (updateData.venue !== undefined && updateData.venue !== currentCourse.venue) {
+        const oldVenue = currentCourse.venue || 'Not set';
+        const newVenue = updateData.venue || 'Not set';
+        changes.push(`Venue: ${oldVenue} → ${newVenue}`);
+      }
+      
+      if (updateData.days && JSON.stringify(updateData.days) !== JSON.stringify(currentCourse.days)) {
+        const oldDays = Array.isArray(currentCourse.days) ? currentCourse.days.join(', ') : currentCourse.days || 'Not set';
+        const newDays = Array.isArray(updateData.days) ? updateData.days.join(', ') : updateData.days;
+        changes.push(`Days: ${oldDays} → ${newDays}`);
+      }
+      
+      // Check for time changes (dayTimes or startTime/endTime)
+      const timeChanged = 
+        (updateData.dayTimes && JSON.stringify(updateData.dayTimes) !== JSON.stringify(currentCourse.dayTimes)) ||
+        (updateData.startTime && updateData.startTime !== currentCourse.startTime) ||
+        (updateData.endTime && updateData.endTime !== currentCourse.endTime);
+      
+      if (timeChanged) {
+        if (updateData.dayTimes && Object.keys(updateData.dayTimes).length > 0) {
+          // Multiple day times changed
+          const timeDetails = Object.entries(updateData.dayTimes)
+            .map(([day, times]) => `${day}: ${times.startTime} - ${times.endTime}`)
+            .join(', ');
+          changes.push(`Time: ${timeDetails}`);
+        } else if (updateData.startTime || updateData.endTime) {
+          // Single time changed
+          const oldTime = currentCourse.startTime && currentCourse.endTime 
+            ? `${currentCourse.startTime} - ${currentCourse.endTime}` 
+            : 'Not set';
+          const newTime = updateData.startTime && updateData.endTime
+            ? `${updateData.startTime} - ${updateData.endTime}`
+            : (updateData.startTime || updateData.endTime || 'Not set');
+          changes.push(`Time: ${oldTime} → ${newTime}`);
+        }
+      }
+      
+      if (updateData.creditHours !== undefined && updateData.creditHours !== currentCourse.creditHours) {
+        const oldHours = currentCourse.creditHours || 'Not set';
+        const newHours = updateData.creditHours || 'Not set';
+        changes.push(`Credit hours: ${oldHours} → ${newHours}`);
+      }
+
       const course = await Course.findByIdAndUpdate(courseId, updateData, { new: true });
 
-      // Notify enrolled students about the update
-      await Notification.createForCourse(courseId, {
-        title: 'Course Updated',
-        message: `${course.courseName} has been updated`,
-        type: 'course_update',
-      });
+      // Get all enrolled students for the course
+      const enrollments = await Enrollment.find({ courseId })
+        .populate('userId', 'pushToken notificationsEnabled fullName');
+
+      // Build notification messages
+      // Detailed message for in-app notifications
+      let detailedMessage = `${course.courseName} has been updated`;
+      if (changes.length > 0) {
+        detailedMessage += `:\n${changes.join('\n')}`;
+      }
+      
+      // Concise message for push notifications (shorter, no newlines)
+      let pushMessage = `${course.courseName} has been updated`;
+      if (changes.length > 0) {
+        // Create a shorter summary for push notifications
+        const changeSummary = changes.map(change => {
+          // Extract key info (e.g., "Venue: Room A1 → Room B2" becomes "Venue changed")
+          if (change.includes('Venue:')) return 'Venue changed';
+          if (change.includes('Time:')) return 'Time changed';
+          if (change.includes('Days:')) return 'Days changed';
+          if (change.includes('Course name:')) return 'Course name changed';
+          if (change.includes('Credit hours:')) return 'Credit hours changed';
+          return 'Updated';
+        });
+        pushMessage += `. ${changeSummary.join(', ')}`;
+      }
+
+      // Prepare notifications for all enrolled students
+      const notifications = [];
+      const pushNotifications = [];
+
+      for (const enrollment of enrollments) {
+        const student = enrollment.userId;
+        
+        // Create in-app notification for all students (detailed message)
+        notifications.push({
+          userId: student._id,
+          title: 'Course Updated',
+          message: detailedMessage,
+          type: 'course_update',
+          courseId: courseId,
+        });
+
+        // Prepare push notification for students with push tokens and notifications enabled (concise message)
+        if (student.pushToken && student.notificationsEnabled) {
+          pushNotifications.push({
+            pushToken: student.pushToken,
+            title: 'Course Updated',
+            body: pushMessage,
+            data: {
+              type: 'course_update',
+              courseId: courseId.toString(),
+              courseName: course.courseName,
+            },
+          });
+        }
+      }
+
+      // Create in-app notifications in database
+      if (notifications.length > 0) {
+        await Notification.insertMany(notifications);
+      }
+
+      // Send push notifications
+      if (pushNotifications.length > 0) {
+        try {
+          const pushResult = await sendBulkPushNotifications(pushNotifications);
+          console.log(`Push notifications sent: ${pushResult.sent || 0} successful, ${pushResult.failed || 0} failed`);
+        } catch (pushError) {
+          console.error('Error sending push notifications:', pushError);
+          // Don't fail the request if push notifications fail
+        }
+      }
 
       res.json({
         success: true,
         message: 'Course updated successfully',
         data: {
           course,
+          notificationsSent: notifications.length,
+          pushNotificationsSent: pushNotifications.length,
         },
       });
     } catch (error) {

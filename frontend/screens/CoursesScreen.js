@@ -355,23 +355,33 @@ const CoursesScreen = ({ navigation }) => {
             <Text style={[styles.activityBadgeText, { color: '#10b981' }]}>Tutorial</Text>
           </Animated.View>
         </TouchableOpacity>
-        <Animated.View
-          style={[
-            styles.activityBadge,
-            styles.assignmentBadge,
-            {
-              opacity: assignmentFade,
-              transform: [
-                { translateY: assignmentTranslateY },
-                { scale: assignmentScale },
-              ],
-            },
-          ]}
-          pointerEvents={isExpanded ? 'auto' : 'none'}
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => {
+            if (isExpanded) {
+              navigation.navigate('CreateAssignment', { course });
+            }
+          }}
+          disabled={!isExpanded}
         >
-          <Ionicons name="document-text-outline" size={14} color="#f97316" />
-          <Text style={[styles.activityBadgeText, { color: '#f97316' }]}>Assignment</Text>
-        </Animated.View>
+          <Animated.View
+            style={[
+              styles.activityBadge,
+              styles.assignmentBadge,
+              {
+                opacity: assignmentFade,
+                transform: [
+                  { translateY: assignmentTranslateY },
+                  { scale: assignmentScale },
+                ],
+              },
+            ]}
+            pointerEvents={isExpanded ? 'auto' : 'none'}
+          >
+            <Ionicons name="document-text-outline" size={14} color="#f97316" />
+            <Text style={[styles.activityBadgeText, { color: '#f97316' }]}>Assignment</Text>
+          </Animated.View>
+        </TouchableOpacity>
       </View>
     );
   };

@@ -360,12 +360,6 @@ const CourseRepScreen = ({ navigation }) => {
                     >
                       <Ionicons name="create-outline" size={18} color="#2563eb" />
                     </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.notificationButton}
-                      onPress={() => handleNotificationPress(course)}
-                    >
-                      <Ionicons name="notifications-outline" size={18} color="#2563eb" />
-                    </TouchableOpacity>
                   </View>
                 </View>
               );

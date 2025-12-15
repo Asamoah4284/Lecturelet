@@ -24,6 +24,10 @@ const StudentCoursesScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [selectedFilter, setSelectedFilter] = useState('courses'); // 'courses', 'quizzes', 'tutorials', 'assignments'
+  const [quizzes, setQuizzes] = useState([]);
+  const [tutorials, setTutorials] = useState([]);
+  const [assignments, setAssignments] = useState([]);
 
   // Load courses on mount
   useEffect(() => {
@@ -57,8 +61,13 @@ const StudentCoursesScreen = ({ navigation }) => {
       const data = await response.json();
 
       if (response.ok && data.success) {
-        setEnrolledCourses(data.data.courses || []);
+        const courses = data.data.courses || [];
+        setEnrolledCourses(courses);
         setError('');
+        // Load activities after courses are loaded
+        if (courses.length > 0) {
+          loadActivitiesForCourses(courses);
+        }
       } else {
         setError(data.message || 'Failed to load courses');
         setEnrolledCourses([]);
@@ -73,9 +82,139 @@ const StudentCoursesScreen = ({ navigation }) => {
     }
   };
 
+  const loadActivitiesForCourses = async (courses) => {
+    try {
+      const token = await AsyncStorage.getItem('@auth_token');
+      if (!token) return;
+
+      if (!courses || courses.length === 0) {
+        return;
+      }
+
+      // Fetch activities for all enrolled courses
+      const allQuizzes = [];
+      const allTutorials = [];
+      const allAssignments = [];
+
+      for (const course of courses) {
+        const courseId = course.id || course._id;
+        if (!courseId) continue;
+
+        try {
+          // Fetch quizzes
+          const quizzesRes = await fetch(getApiUrl(`quizzes/course/${courseId}`), {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${token}` },
+          });
+          const quizzesData = await quizzesRes.json();
+          if (quizzesData.success && quizzesData.data.quizzes) {
+            allQuizzes.push(...quizzesData.data.quizzes);
+          }
+
+          // Fetch tutorials
+          const tutorialsRes = await fetch(getApiUrl(`tutorials/course/${courseId}`), {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${token}` },
+          });
+          const tutorialsData = await tutorialsRes.json();
+          if (tutorialsData.success && tutorialsData.data.tutorials) {
+            allTutorials.push(...tutorialsData.data.tutorials);
+          }
+
+          // Fetch assignments
+          const assignmentsRes = await fetch(getApiUrl(`assignments/course/${courseId}`), {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${token}` },
+          });
+          const assignmentsData = await assignmentsRes.json();
+          if (assignmentsData.success && assignmentsData.data.assignments) {
+            allAssignments.push(...assignmentsData.data.assignments);
+          }
+        } catch (error) {
+          console.error(`Error fetching activities for course ${courseId}:`, error);
+        }
+      }
+
+      setQuizzes(allQuizzes);
+      setTutorials(allTutorials);
+      setAssignments(allAssignments);
+    } catch (error) {
+      console.error('Error loading activities:', error);
+    }
+  };
+
   const onRefresh = () => {
     setRefreshing(true);
     loadCourses();
+  };
+
+  // Check if activity is more than 12 hours past its scheduled time
+  const isActivityExpired = (activity) => {
+    try {
+      const dateStr = activity.date || activity.due_date || activity.dueDate;
+      const timeStr = activity.time;
+      
+      if (!dateStr) return false;
+      
+      // Parse date (format: DD/MM/YYYY)
+      const dateParts = dateStr.split('/');
+      if (dateParts.length !== 3) return false;
+      
+      const day = parseInt(dateParts[0], 10);
+      const month = parseInt(dateParts[1], 10) - 1;
+      const year = parseInt(dateParts[2], 10);
+      
+      // Parse time (format: HH:MM or HH:MM AM/PM)
+      let hours = 0;
+      let minutes = 0;
+      
+      if (timeStr) {
+        const timeMatch = timeStr.match(/(\d+):(\d+)\s*(AM|PM)?/i);
+        if (timeMatch) {
+          hours = parseInt(timeMatch[1], 10);
+          minutes = parseInt(timeMatch[2], 10);
+          const period = timeMatch[3];
+          
+          if (period) {
+            if (period.toUpperCase() === 'PM' && hours !== 12) {
+              hours += 12;
+            } else if (period.toUpperCase() === 'AM' && hours === 12) {
+              hours = 0;
+            }
+          }
+        }
+      }
+      
+      const scheduledDate = new Date(year, month, day, hours, minutes, 0);
+      const now = new Date();
+      const expiryTime = new Date(scheduledDate.getTime() + 12 * 60 * 60 * 1000);
+      
+      return now > expiryTime;
+    } catch (error) {
+      console.error('Error checking activity expiry:', error);
+      return false;
+    }
+  };
+
+  // Get filtered activities (excluding expired ones)
+  const getFilteredQuizzes = () => {
+    return quizzes.filter(quiz => !isActivityExpired(quiz));
+  };
+
+  const getFilteredTutorials = () => {
+    return tutorials.filter(tutorial => !isActivityExpired(tutorial));
+  };
+
+  const getFilteredAssignments = () => {
+    return assignments.filter(assignment => !isActivityExpired(assignment));
+  };
+
+  // Get counts for each filter
+  const getFilterCounts = () => {
+    const quizCount = getFilteredQuizzes().length;
+    const tutorialCount = getFilteredTutorials().length;
+    const assignmentCount = getFilteredAssignments().length;
+    return { quizCount, tutorialCount, assignmentCount };
   };
 
   const formatDays = (days) => {
@@ -197,6 +336,107 @@ const StudentCoursesScreen = ({ navigation }) => {
         {/* My Courses Section */}
         <Text style={styles.sectionTitle}>My Courses</Text>
 
+        {/* Filter Tabs */}
+        {!loading && enrolledCourses.length > 0 && (
+          <View style={styles.filterTabsContainer}>
+            <TouchableOpacity
+              style={[
+                styles.filterTab,
+                selectedFilter === 'courses' && styles.filterTabActive
+              ]}
+              onPress={() => setSelectedFilter('courses')}
+            >
+              <Ionicons name="book-outline" size={14} color={selectedFilter === 'courses' ? '#374151' : '#6b7280'} />
+              <Text
+                style={[
+                  styles.filterTabText,
+                  selectedFilter === 'courses' && styles.filterTabTextActive
+                ]}
+              >
+                Courses
+              </Text>
+              {enrolledCourses.length > 0 && (
+                <View style={styles.filterTabBadge}>
+                  <Text style={styles.filterTabBadgeText}>{enrolledCourses.length}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.filterTab,
+                styles.filterTabQuiz,
+                selectedFilter === 'quizzes' && styles.filterTabQuizActive
+              ]}
+              onPress={() => setSelectedFilter('quizzes')}
+            >
+              <Ionicons name="checkmark-circle-outline" size={14} color="#3b82f6" />
+              <Text
+                style={[
+                  styles.filterTabText,
+                  styles.filterTabTextQuiz,
+                  selectedFilter === 'quizzes' && styles.filterTabTextQuizActive
+                ]}
+              >
+                Quiz
+              </Text>
+              {getFilterCounts().quizCount > 0 && (
+                <View style={styles.filterTabBadge}>
+                  <Text style={styles.filterTabBadgeText}>{getFilterCounts().quizCount}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.filterTab,
+                styles.filterTabTutorial,
+                selectedFilter === 'tutorials' && styles.filterTabTutorialActive
+              ]}
+              onPress={() => setSelectedFilter('tutorials')}
+            >
+              <Ionicons name="school-outline" size={14} color="#10b981" />
+              <Text
+                style={[
+                  styles.filterTabText,
+                  styles.filterTabTextTutorial,
+                  selectedFilter === 'tutorials' && styles.filterTabTextTutorialActive
+                ]}
+              >
+                Tutorial
+              </Text>
+              {getFilterCounts().tutorialCount > 0 && (
+                <View style={styles.filterTabBadge}>
+                  <Text style={styles.filterTabBadgeText}>{getFilterCounts().tutorialCount}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.filterTab,
+                styles.filterTabAssignment,
+                styles.filterTabWide,
+                selectedFilter === 'assignments' && styles.filterTabAssignmentActive
+              ]}
+              onPress={() => setSelectedFilter('assignments')}
+            >
+              <Ionicons name="document-text-outline" size={14} color="#f97316" />
+              <Text
+                style={[
+                  styles.filterTabText,
+                  styles.filterTabTextAssignment,
+                  selectedFilter === 'assignments' && styles.filterTabTextAssignmentActive
+                ]}
+              >
+                Assignment
+              </Text>
+              {getFilterCounts().assignmentCount > 0 && (
+                <View style={styles.filterTabBadge}>
+                  <Text style={styles.filterTabBadgeText}>{getFilterCounts().assignmentCount}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
+
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#2563eb" />
@@ -211,6 +451,123 @@ const StudentCoursesScreen = ({ navigation }) => {
               variant="primary"
               style={styles.retryButton}
             />
+          </View>
+        ) : selectedFilter !== 'courses' ? (
+          /* Activities List */
+          <View style={styles.activitiesList}>
+            {selectedFilter === 'quizzes' && getFilteredQuizzes().length > 0 && getFilteredQuizzes().map((quiz) => (
+              <View key={quiz.id || quiz._id} style={styles.activityCard}>
+                <View style={styles.activityCardLeftBorder} />
+                <View style={styles.activityCardContent}>
+                  <View style={styles.activityCardHeader}>
+                    <View style={styles.activityTitleSection}>
+                      <Text style={styles.activityNameText}>{quiz.quiz_name || quiz.quizName}</Text>
+                      <Text style={styles.activityCourseText}>
+                        {quiz.course_code || quiz.courseCode} - {quiz.course_name || quiz.courseName}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.activityDetails}>
+                    <View style={styles.detailRow}>
+                      <Ionicons name="calendar-outline" size={16} color="#6b7280" />
+                      <Text style={styles.detailText}>{quiz.date}</Text>
+                    </View>
+                    <View style={styles.detailRow}>
+                      <Ionicons name="time-outline" size={16} color="#6b7280" />
+                      <Text style={styles.detailText}>{quiz.time}</Text>
+                    </View>
+                    {quiz.venue && (
+                      <View style={styles.detailRow}>
+                        <Ionicons name="location-outline" size={16} color="#6b7280" />
+                        <Text style={styles.detailText}>{quiz.venue}</Text>
+                      </View>
+                    )}
+                    {quiz.topic && (
+                      <View style={styles.detailRow}>
+                        <Ionicons name="book-outline" size={16} color="#6b7280" />
+                        <Text style={styles.detailText}>{quiz.topic}</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              </View>
+            ))}
+            {selectedFilter === 'tutorials' && getFilteredTutorials().length > 0 && getFilteredTutorials().map((tutorial) => (
+              <View key={tutorial.id || tutorial._id} style={styles.activityCard}>
+                <View style={[styles.activityCardLeftBorder, { backgroundColor: '#10b981' }]} />
+                <View style={styles.activityCardContent}>
+                  <View style={styles.activityCardHeader}>
+                    <View style={styles.activityTitleSection}>
+                      <Text style={styles.activityNameText}>{tutorial.tutorial_name || tutorial.tutorialName}</Text>
+                      <Text style={styles.activityCourseText}>
+                        {tutorial.course_code || tutorial.courseCode} - {tutorial.course_name || tutorial.courseName}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.activityDetails}>
+                    <View style={styles.detailRow}>
+                      <Ionicons name="calendar-outline" size={16} color="#6b7280" />
+                      <Text style={styles.detailText}>{tutorial.date}</Text>
+                    </View>
+                    <View style={styles.detailRow}>
+                      <Ionicons name="time-outline" size={16} color="#6b7280" />
+                      <Text style={styles.detailText}>{tutorial.time}</Text>
+                    </View>
+                    {tutorial.venue && (
+                      <View style={styles.detailRow}>
+                        <Ionicons name="location-outline" size={16} color="#6b7280" />
+                        <Text style={styles.detailText}>{tutorial.venue}</Text>
+                      </View>
+                    )}
+                    {tutorial.topic && (
+                      <View style={styles.detailRow}>
+                        <Ionicons name="book-outline" size={16} color="#6b7280" />
+                        <Text style={styles.detailText}>{tutorial.topic}</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              </View>
+            ))}
+            {selectedFilter === 'assignments' && getFilteredAssignments().length > 0 && getFilteredAssignments().map((assignment) => (
+              <View key={assignment.id || assignment._id} style={styles.activityCard}>
+                <View style={[styles.activityCardLeftBorder, { backgroundColor: '#f97316' }]} />
+                <View style={styles.activityCardContent}>
+                  <View style={styles.activityCardHeader}>
+                    <View style={styles.activityTitleSection}>
+                      <Text style={styles.activityNameText}>{assignment.assignment_name || assignment.assignmentName}</Text>
+                      <Text style={styles.activityCourseText}>
+                        {assignment.course_code || assignment.courseCode} - {assignment.course_name || assignment.courseName}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.activityDetails}>
+                    <View style={styles.detailRow}>
+                      <Ionicons name="calendar-outline" size={16} color="#6b7280" />
+                      <Text style={styles.detailText}>{assignment.due_date || assignment.dueDate || assignment.date}</Text>
+                    </View>
+                    {assignment.description && (
+                      <View style={styles.detailRow}>
+                        <Ionicons name="document-text-outline" size={16} color="#6b7280" />
+                        <Text style={styles.detailText} numberOfLines={2}>{assignment.description}</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              </View>
+            ))}
+            {((selectedFilter === 'quizzes' && getFilteredQuizzes().length === 0) ||
+              (selectedFilter === 'tutorials' && getFilteredTutorials().length === 0) ||
+              (selectedFilter === 'assignments' && getFilteredAssignments().length === 0)) && (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyTitle}>
+                  No {selectedFilter === 'quizzes' ? 'Quizzes' : selectedFilter === 'tutorials' ? 'Tutorials' : 'Assignments'}
+                </Text>
+                <Text style={styles.emptyDescription}>
+                  You don't have any {selectedFilter === 'quizzes' ? 'quizzes' : selectedFilter === 'tutorials' ? 'tutorials' : 'assignments'} for your enrolled courses.
+                </Text>
+              </View>
+            )}
           </View>
         ) : filteredCourses.length > 0 ? (
           <View style={styles.coursesList}>
@@ -659,6 +1016,158 @@ const styles = StyleSheet.create({
   navLabelActive: {
     color: '#111827',
     fontWeight: '600',
+  },
+  filterTabsContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 20,
+    paddingHorizontal: 4,
+  },
+  filterTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 5,
+    position: 'relative',
+    minHeight: 28,
+  },
+  filterTabActive: {
+    backgroundColor: '#f3f4f6',
+    borderColor: '#d1d5db',
+  },
+  filterTabQuiz: {
+    backgroundColor: '#dbeafe',
+    borderColor: '#3b82f6',
+  },
+  filterTabQuizActive: {
+    backgroundColor: '#bfdbfe',
+    borderColor: '#2563eb',
+  },
+  filterTabTutorial: {
+    backgroundColor: '#d1fae5',
+    borderColor: '#10b981',
+  },
+  filterTabTutorialActive: {
+    backgroundColor: '#a7f3d0',
+    borderColor: '#059669',
+  },
+  filterTabAssignment: {
+    backgroundColor: '#fed7aa',
+    borderColor: '#f97316',
+  },
+  filterTabAssignmentActive: {
+    backgroundColor: '#fdba74',
+    borderColor: '#ea580c',
+  },
+  filterTabWide: {
+    flex: 1.3,
+  },
+  filterTabText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#6b7280',
+  },
+  filterTabTextActive: {
+    color: '#374151',
+    fontWeight: '600',
+  },
+  filterTabTextQuiz: {
+    color: '#3b82f6',
+    fontWeight: '500',
+  },
+  filterTabTextQuizActive: {
+    color: '#2563eb',
+    fontWeight: '600',
+  },
+  filterTabTextTutorial: {
+    color: '#10b981',
+    fontWeight: '500',
+  },
+  filterTabTextTutorialActive: {
+    color: '#059669',
+    fontWeight: '600',
+  },
+  filterTabTextAssignment: {
+    color: '#f97316',
+    fontWeight: '500',
+  },
+  filterTabTextAssignmentActive: {
+    color: '#ea580c',
+    fontWeight: '600',
+  },
+  filterTabBadge: {
+    position: 'absolute',
+    top: -4,
+    left: -4,
+    backgroundColor: '#ef4444',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  filterTabBadgeText: {
+    color: '#ffffff',
+    fontSize: 8,
+    fontWeight: '700',
+  },
+  activitiesList: {
+    gap: 16,
+  },
+  activityCard: {
+    flexDirection: 'row',
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    borderWidth: 0,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.02,
+    shadowRadius: 2,
+    elevation: 1,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  activityCardLeftBorder: {
+    width: 4,
+    backgroundColor: '#3b82f6',
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+  },
+  activityCardContent: {
+    flex: 1,
+    padding: 16,
+    paddingLeft: 20,
+  },
+  activityCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  activityTitleSection: {
+    flex: 1,
+  },
+  activityNameText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  activityCourseText: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: '#6b7280',
+  },
+  activityDetails: {
+    gap: 6,
   },
 });
 

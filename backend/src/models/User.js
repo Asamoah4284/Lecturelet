@@ -81,7 +81,7 @@ userSchema.methods.updatePushToken = function(pushToken) {
 // Transform output to match expected format
 userSchema.methods.toPublicJSON = function() {
   return {
-    id: this._id,
+    id: this._id.toString(),
     phone_number: this.phoneNumber,
     full_name: this.fullName,
     role: this.role,

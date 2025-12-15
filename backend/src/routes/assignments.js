@@ -1,6 +1,6 @@
 const express = require('express');
 const { body } = require('express-validator');
-const { Quiz, Course, Enrollment, Notification, User } = require('../models');
+const { Assignment, Course, Enrollment, Notification, User } = require('../models');
 const { authenticate, authorize } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const { sendBulkPushNotifications } = require('../utils/pushNotificationService');
@@ -8,8 +8,8 @@ const { sendBulkPushNotifications } = require('../utils/pushNotificationService'
 const router = express.Router();
 
 /**
- * @route   POST /api/quizzes/create
- * @desc    Create a new quiz (Course Rep only)
+ * @route   POST /api/assignments/create
+ * @desc    Create a new assignment (Course Rep only)
  * @access  Private (course_rep)
  */
 router.post(
@@ -17,10 +17,10 @@ router.post(
   authenticate,
   authorize('course_rep'),
   [
-    body('quizName')
+    body('assignmentName')
       .trim()
       .notEmpty()
-      .withMessage('Quiz name is required'),
+      .withMessage('Assignment name is required'),
     body('date')
       .trim()
       .notEmpty()
@@ -50,7 +50,7 @@ router.post(
   async (req, res) => {
     try {
       const {
-        quizName,
+        assignmentName,
         date,
         time,
         venue,
@@ -72,13 +72,13 @@ router.post(
       if (!(await Course.isCreator(courseId, req.user.id))) {
         return res.status(403).json({
           success: false,
-          message: 'You can only create quizzes for your own courses',
+          message: 'You can only create assignments for your own courses',
         });
       }
 
-      // Create the quiz
-      const quiz = await Quiz.create({
-        quizName: quizName.trim(),
+      // Create the assignment
+      const assignment = await Assignment.create({
+        assignmentName: assignmentName.trim(),
         date,
         time,
         venue: venue.trim(),
@@ -103,8 +103,8 @@ router.post(
         // Create in-app notification for all students
         notifications.push({
           userId: student._id,
-          title: 'New Quiz Created',
-          message: `A new quiz "${quizName}" has been scheduled for ${courseName} on ${date} at ${time}`,
+          title: 'New Assignment Created',
+          message: `A new assignment "${assignmentName}" has been created for ${courseName}. Submission deadline: ${date} at ${time}`,
           type: 'announcement',
           courseId: courseId,
         });
@@ -113,11 +113,11 @@ router.post(
         if (student.pushToken && student.notificationsEnabled) {
           pushNotifications.push({
             pushToken: student.pushToken,
-            title: 'New Quiz Created',
-            body: `A new quiz "${quizName}" has been scheduled for ${courseName} on ${date} at ${time}`,
+            title: 'New Assignment Created',
+            body: `A new assignment "${assignmentName}" has been created for ${courseName}. Submission deadline: ${date} at ${time}`,
             data: {
-              type: 'quiz_created',
-              quizId: quiz._id.toString(),
+              type: 'assignment_created',
+              assignmentId: assignment._id.toString(),
               courseId: courseId.toString(),
               courseName: courseName,
             },
@@ -143,26 +143,26 @@ router.post(
 
       res.status(201).json({
         success: true,
-        message: 'Quiz created successfully',
+        message: 'Assignment created successfully',
         data: {
-          quiz: quiz.toJSON(),
+          assignment: assignment.toJSON(),
           notificationsSent: notifications.length,
           pushNotificationsSent: pushNotifications.length,
         },
       });
     } catch (error) {
-      console.error('Create quiz error:', error);
+      console.error('Create assignment error:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to create quiz',
+        message: 'Failed to create assignment',
       });
     }
   }
 );
 
 /**
- * @route   GET /api/quizzes/course/:courseId
- * @desc    Get all quizzes for a course
+ * @route   GET /api/assignments/course/:courseId
+ * @desc    Get all assignments for a course
  * @access  Private
  */
 router.get(
@@ -188,62 +188,62 @@ router.get(
       if (!isEnrolled && !isCreator) {
         return res.status(403).json({
           success: false,
-          message: 'You can only view quizzes for courses you are enrolled in or created',
+          message: 'You can only view assignments for courses you are enrolled in or created',
         });
       }
 
-      const quizzes = await Quiz.findByCourse(courseId);
+      const assignments = await Assignment.findByCourse(courseId);
 
       res.json({
         success: true,
         data: {
-          quizzes: quizzes.map(quiz => quiz.toJSON()),
-          count: quizzes.length,
+          assignments: assignments.map(assignment => assignment.toJSON()),
+          count: assignments.length,
         },
       });
     } catch (error) {
-      console.error('Get quizzes error:', error);
+      console.error('Get assignments error:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to fetch quizzes',
+        message: 'Failed to fetch assignments',
       });
     }
   }
 );
 
 /**
- * @route   GET /api/quizzes/my-quizzes
- * @desc    Get all quizzes created by the current user (Course Rep)
+ * @route   GET /api/assignments/my-assignments
+ * @desc    Get all assignments created by the current user (Course Rep)
  * @access  Private (course_rep)
  */
 router.get(
-  '/my-quizzes',
+  '/my-assignments',
   authenticate,
   authorize('course_rep'),
   async (req, res) => {
     try {
-      const quizzes = await Quiz.findByCreator(req.user.id);
+      const assignments = await Assignment.findByCreator(req.user.id);
 
       res.json({
         success: true,
         data: {
-          quizzes: quizzes.map(quiz => quiz.toJSON()),
-          count: quizzes.length,
+          assignments: assignments.map(assignment => assignment.toJSON()),
+          count: assignments.length,
         },
       });
     } catch (error) {
-      console.error('Get my quizzes error:', error);
+      console.error('Get my assignments error:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to fetch quizzes',
+        message: 'Failed to fetch assignments',
       });
     }
   }
 );
 
 /**
- * @route   PUT /api/quizzes/:id
- * @desc    Update a quiz (Course Rep only)
+ * @route   PUT /api/assignments/:id
+ * @desc    Update an assignment (Course Rep only)
  * @access  Private (course_rep)
  */
 router.put(
@@ -251,7 +251,7 @@ router.put(
   authenticate,
   authorize('course_rep'),
   [
-    body('quizName').optional().trim().notEmpty(),
+    body('assignmentName').optional().trim().notEmpty(),
     body('date').optional().trim().notEmpty(),
     body('time').optional().trim().notEmpty(),
     body('venue').optional().trim().notEmpty(),
@@ -260,31 +260,31 @@ router.put(
   validate,
   async (req, res) => {
     try {
-      const quizId = req.params.id;
-      const { quizName, date, time, venue, topic } = req.body;
+      const assignmentId = req.params.id;
+      const { assignmentName, date, time, venue, topic } = req.body;
 
-      // Get current quiz data before updating
-      const currentQuiz = await Quiz.findById(quizId);
-      if (!currentQuiz) {
+      // Get current assignment data before updating
+      const currentAssignment = await Assignment.findById(assignmentId);
+      if (!currentAssignment) {
         return res.status(404).json({
           success: false,
-          message: 'Quiz not found',
+          message: 'Assignment not found',
         });
       }
 
       // Verify user is creator
-      const quizCreatorId = currentQuiz.createdBy.toString();
+      const assignmentCreatorId = currentAssignment.createdBy.toString();
       const userId = req.user.id?.toString ? req.user.id.toString() : String(req.user.id);
-      if (quizCreatorId !== userId) {
+      if (assignmentCreatorId !== userId) {
         return res.status(403).json({
           success: false,
-          message: 'You can only update quizzes you created',
+          message: 'You can only update assignments you created',
         });
       }
 
       // Build update data
       const updateData = {};
-      if (quizName !== undefined) updateData.quizName = quizName.trim();
+      if (assignmentName !== undefined) updateData.assignmentName = assignmentName.trim();
       if (date !== undefined) updateData.date = date;
       if (time !== undefined) updateData.time = time;
       if (venue !== undefined) updateData.venue = venue.trim();
@@ -292,39 +292,39 @@ router.put(
 
       // Detect what changed for notification
       const changes = [];
-      if (updateData.quizName && updateData.quizName !== currentQuiz.quizName) {
-        changes.push(`Quiz name: ${currentQuiz.quizName} → ${updateData.quizName}`);
+      if (updateData.assignmentName && updateData.assignmentName !== currentAssignment.assignmentName) {
+        changes.push(`Assignment name: ${currentAssignment.assignmentName} → ${updateData.assignmentName}`);
       }
-      if (updateData.date && updateData.date !== currentQuiz.date) {
-        changes.push(`Date: ${currentQuiz.date} → ${updateData.date}`);
+      if (updateData.date && updateData.date !== currentAssignment.date) {
+        changes.push(`Submission deadline date: ${currentAssignment.date} → ${updateData.date}`);
       }
-      if (updateData.time && updateData.time !== currentQuiz.time) {
-        changes.push(`Time: ${currentQuiz.time} → ${updateData.time}`);
+      if (updateData.time && updateData.time !== currentAssignment.time) {
+        changes.push(`Submission deadline time: ${currentAssignment.time} → ${updateData.time}`);
       }
-      if (updateData.venue && updateData.venue !== currentQuiz.venue) {
-        changes.push(`Venue: ${currentQuiz.venue} → ${updateData.venue}`);
+      if (updateData.venue && updateData.venue !== currentAssignment.venue) {
+        changes.push(`Venue: ${currentAssignment.venue} → ${updateData.venue}`);
       }
 
-      // Update the quiz
-      const quiz = await Quiz.findByIdAndUpdate(quizId, updateData, { new: true });
+      // Update the assignment
+      const assignment = await Assignment.findByIdAndUpdate(assignmentId, updateData, { new: true });
 
       // Get all enrolled students for the course
-      const enrollments = await Enrollment.find({ courseId: quiz.courseId })
+      const enrollments = await Enrollment.find({ courseId: assignment.courseId })
         .populate('userId', 'pushToken notificationsEnabled fullName');
 
       // Build notification messages
-      let detailedMessage = `Quiz "${quiz.quizName}" for ${quiz.courseName} has been updated`;
+      let detailedMessage = `Assignment "${assignment.assignmentName}" for ${assignment.courseName} has been updated`;
       if (changes.length > 0) {
         detailedMessage += `:\n${changes.join('\n')}`;
       }
 
-      let pushMessage = `Quiz "${quiz.quizName}" has been updated`;
+      let pushMessage = `Assignment "${assignment.assignmentName}" has been updated`;
       if (changes.length > 0) {
         const changeSummary = changes.map(change => {
-          if (change.includes('Date:')) return 'Date changed';
-          if (change.includes('Time:')) return 'Time changed';
+          if (change.includes('deadline date:')) return 'Deadline date changed';
+          if (change.includes('deadline time:')) return 'Deadline time changed';
           if (change.includes('Venue:')) return 'Venue changed';
-          if (change.includes('Quiz name:')) return 'Name changed';
+          if (change.includes('name:')) return 'Name changed';
           return 'Updated';
         });
         pushMessage += `. ${changeSummary.join(', ')}`;
@@ -340,23 +340,23 @@ router.put(
         // Create in-app notification for all students
         notifications.push({
           userId: student._id,
-          title: 'Quiz Updated',
+          title: 'Assignment Updated',
           message: detailedMessage,
           type: 'announcement',
-          courseId: quiz.courseId,
+          courseId: assignment.courseId,
         });
 
         // Prepare push notification for students with push tokens and notifications enabled
         if (student.pushToken && student.notificationsEnabled) {
           pushNotifications.push({
             pushToken: student.pushToken,
-            title: 'Quiz Updated',
+            title: 'Assignment Updated',
             body: pushMessage,
             data: {
-              type: 'quiz_updated',
-              quizId: quiz._id.toString(),
-              courseId: quiz.courseId.toString(),
-              courseName: quiz.courseName,
+              type: 'assignment_updated',
+              assignmentId: assignment._id.toString(),
+              courseId: assignment.courseId.toString(),
+              courseName: assignment.courseName,
             },
           });
         }
@@ -380,18 +380,18 @@ router.put(
 
       res.json({
         success: true,
-        message: 'Quiz updated successfully',
+        message: 'Assignment updated successfully',
         data: {
-          quiz: quiz.toJSON(),
+          assignment: assignment.toJSON(),
           notificationsSent: notifications.length,
           pushNotificationsSent: pushNotifications.length,
         },
       });
     } catch (error) {
-      console.error('Update quiz error:', error);
+      console.error('Update assignment error:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to update quiz',
+        message: 'Failed to update assignment',
       });
     }
   }

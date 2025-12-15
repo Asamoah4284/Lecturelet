@@ -20,6 +20,8 @@ import { getApiUrl } from '../config/api';
 
 const CreateTutorialScreen = ({ navigation, route }) => {
   const course = route.params?.course;
+  const tutorial = route.params?.tutorial; // For edit mode
+  const editMode = route.params?.editMode || false;
   const [loading, setLoading] = useState(false);
   const [tutorialName, setTutorialName] = useState('');
   const [topic, setTopic] = useState('');
@@ -36,6 +38,48 @@ const CreateTutorialScreen = ({ navigation, route }) => {
       ]);
     }
   }, [course, navigation]);
+
+  // Load tutorial data if in edit mode
+  useEffect(() => {
+    if (editMode && tutorial) {
+      setTutorialName(tutorial.tutorial_name || tutorial.tutorialName || '');
+      setTopic(tutorial.topic || '');
+      setVenue(tutorial.venue || '');
+      
+      // Parse date (format: DD/MM/YYYY)
+      if (tutorial.date) {
+        const dateParts = tutorial.date.split('/');
+        if (dateParts.length === 3) {
+          const day = parseInt(dateParts[0], 10);
+          const month = parseInt(dateParts[1], 10) - 1; // Month is 0-indexed
+          const year = parseInt(dateParts[2], 10);
+          setSelectedDate(new Date(year, month, day));
+        }
+      }
+      
+      // Parse time (format: HH:MM AM/PM)
+      if (tutorial.time) {
+        const timeMatch = tutorial.time.match(/(\d+):(\d+)\s*(AM|PM)?/i);
+        if (timeMatch) {
+          let hours = parseInt(timeMatch[1], 10);
+          const minutes = parseInt(timeMatch[2], 10);
+          const period = timeMatch[3];
+          
+          // Convert to 24-hour format
+          if (period) {
+            if (period.toUpperCase() === 'PM' && hours !== 12) {
+              hours += 12;
+            } else if (period.toUpperCase() === 'AM' && hours === 12) {
+              hours = 0;
+            }
+          }
+          
+          const now = new Date();
+          setSelectedTime(new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0));
+        }
+      }
+    }
+  }, [editMode, tutorial]);
   
   // Date picker state
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -140,9 +184,14 @@ const CreateTutorialScreen = ({ navigation, route }) => {
         courseName: course?.course_name || course?.courseName,
       };
 
-      // TODO: Replace with actual API endpoint when backend is ready
-      const response = await fetch(getApiUrl('tutorials/create'), {
-        method: 'POST',
+      const tutorialId = tutorial?.id || tutorial?._id;
+      const url = editMode && tutorialId 
+        ? getApiUrl(`tutorials/${tutorialId}`)
+        : getApiUrl('tutorials/create');
+      const method = editMode ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method: method,
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
@@ -153,18 +202,18 @@ const CreateTutorialScreen = ({ navigation, route }) => {
       const data = await response.json();
 
       if (response.ok && data.success) {
-        Alert.alert('Success', 'Tutorial created successfully', [
+        Alert.alert('Success', editMode ? 'Tutorial updated successfully' : 'Tutorial created successfully', [
           {
             text: 'OK',
             onPress: () => navigation.goBack(),
           },
         ]);
       } else {
-        Alert.alert('Error', data.message || 'Failed to create tutorial');
+        Alert.alert('Error', data.message || (editMode ? 'Failed to update tutorial' : 'Failed to create tutorial'));
       }
     } catch (error) {
-      console.error('Error creating tutorial:', error);
-      Alert.alert('Error', 'Failed to create tutorial. Please try again.');
+      console.error('Error saving tutorial:', error);
+      Alert.alert('Error', editMode ? 'Failed to update tutorial. Please try again.' : 'Failed to create tutorial. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -182,7 +231,7 @@ const CreateTutorialScreen = ({ navigation, route }) => {
         >
           <Ionicons name="arrow-back" size={24} color="#ffffff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Create Tutorial</Text>
+        <Text style={styles.headerTitle}>{editMode ? 'Edit Tutorial' : 'Create Tutorial'}</Text>
         <View style={styles.placeholder} />
       </View>
 
@@ -310,7 +359,7 @@ const CreateTutorialScreen = ({ navigation, route }) => {
 
         {/* Submit Button */}
         <Button
-          title={loading ? 'Creating...' : 'Create Tutorial'}
+          title={loading ? (editMode ? 'Updating...' : 'Creating...') : (editMode ? 'Update Tutorial' : 'Create Tutorial')}
           onPress={handleCreateTutorial}
           variant="primary"
           style={styles.submitButton}
@@ -440,3 +489,4 @@ const styles = StyleSheet.create({
 });
 
 export default CreateTutorialScreen;
+

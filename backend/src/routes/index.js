@@ -4,6 +4,8 @@ const courseRoutes = require('./courses');
 const enrollmentRoutes = require('./enrollments');
 const notificationRoutes = require('./notifications');
 const quizRoutes = require('./quizzes');
+const assignmentRoutes = require('./assignments');
+const tutorialRoutes = require('./tutorials');
 
 const router = express.Router();
 
@@ -22,6 +24,8 @@ router.use('/courses', courseRoutes);
 router.use('/enrollments', enrollmentRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/quizzes', quizRoutes);
+router.use('/assignments', assignmentRoutes);
+router.use('/tutorials', tutorialRoutes);
 
 module.exports = router;
 

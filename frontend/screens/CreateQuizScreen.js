@@ -20,6 +20,8 @@ import { getApiUrl } from '../config/api';
 
 const CreateQuizScreen = ({ navigation, route }) => {
   const course = route.params?.course;
+  const quiz = route.params?.quiz; // For edit mode
+  const editMode = route.params?.editMode || false;
   const [loading, setLoading] = useState(false);
   const [quizName, setQuizName] = useState('');
   const [topic, setTopic] = useState('');
@@ -36,6 +38,48 @@ const CreateQuizScreen = ({ navigation, route }) => {
       ]);
     }
   }, [course, navigation]);
+
+  // Load quiz data if in edit mode
+  useEffect(() => {
+    if (editMode && quiz) {
+      setQuizName(quiz.quiz_name || quiz.quizName || '');
+      setTopic(quiz.topic || '');
+      setVenue(quiz.venue || '');
+      
+      // Parse date (format: DD/MM/YYYY)
+      if (quiz.date) {
+        const dateParts = quiz.date.split('/');
+        if (dateParts.length === 3) {
+          const day = parseInt(dateParts[0], 10);
+          const month = parseInt(dateParts[1], 10) - 1; // Month is 0-indexed
+          const year = parseInt(dateParts[2], 10);
+          setSelectedDate(new Date(year, month, day));
+        }
+      }
+      
+      // Parse time (format: HH:MM AM/PM)
+      if (quiz.time) {
+        const timeMatch = quiz.time.match(/(\d+):(\d+)\s*(AM|PM)?/i);
+        if (timeMatch) {
+          let hours = parseInt(timeMatch[1], 10);
+          const minutes = parseInt(timeMatch[2], 10);
+          const period = timeMatch[3];
+          
+          // Convert to 24-hour format
+          if (period) {
+            if (period.toUpperCase() === 'PM' && hours !== 12) {
+              hours += 12;
+            } else if (period.toUpperCase() === 'AM' && hours === 12) {
+              hours = 0;
+            }
+          }
+          
+          const now = new Date();
+          setSelectedTime(new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0));
+        }
+      }
+    }
+  }, [editMode, quiz]);
   
   // Date picker state
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -140,9 +184,14 @@ const CreateQuizScreen = ({ navigation, route }) => {
         courseName: course?.course_name || course?.courseName,
       };
 
-      // TODO: Replace with actual API endpoint when backend is ready
-      const response = await fetch(getApiUrl('quizzes/create'), {
-        method: 'POST',
+      const quizId = quiz?.id || quiz?._id;
+      const url = editMode && quizId 
+        ? getApiUrl(`quizzes/${quizId}`)
+        : getApiUrl('quizzes/create');
+      const method = editMode ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method: method,
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
@@ -153,18 +202,18 @@ const CreateQuizScreen = ({ navigation, route }) => {
       const data = await response.json();
 
       if (response.ok && data.success) {
-        Alert.alert('Success', 'Quiz created successfully', [
+        Alert.alert('Success', editMode ? 'Quiz updated successfully' : 'Quiz created successfully', [
           {
             text: 'OK',
             onPress: () => navigation.goBack(),
           },
         ]);
       } else {
-        Alert.alert('Error', data.message || 'Failed to create quiz');
+        Alert.alert('Error', data.message || (editMode ? 'Failed to update quiz' : 'Failed to create quiz'));
       }
     } catch (error) {
-      console.error('Error creating quiz:', error);
-      Alert.alert('Error', 'Failed to create quiz. Please try again.');
+      console.error('Error saving quiz:', error);
+      Alert.alert('Error', editMode ? 'Failed to update quiz. Please try again.' : 'Failed to create quiz. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -182,7 +231,7 @@ const CreateQuizScreen = ({ navigation, route }) => {
         >
           <Ionicons name="arrow-back" size={24} color="#ffffff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Create Quiz</Text>
+        <Text style={styles.headerTitle}>{editMode ? 'Edit Quiz' : 'Create Quiz'}</Text>
         <View style={styles.placeholder} />
       </View>
 
@@ -310,7 +359,7 @@ const CreateQuizScreen = ({ navigation, route }) => {
 
         {/* Submit Button */}
         <Button
-          title={loading ? 'Creating...' : 'Create Quiz'}
+          title={loading ? (editMode ? 'Updating...' : 'Creating...') : (editMode ? 'Update Quiz' : 'Create Quiz')}
           onPress={handleCreateQuiz}
           variant="primary"
           style={styles.submitButton}

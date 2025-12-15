@@ -24,16 +24,22 @@ const CoursesScreen = ({ navigation }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [deletingCourseId, setDeletingCourseId] = useState(null);
   const [expandedCourseId, setExpandedCourseId] = useState(null);
+  const [selectedFilter, setSelectedFilter] = useState('courses'); // 'courses', 'quizzes', 'tutorials', 'assignments'
+  const [quizzes, setQuizzes] = useState([]);
+  const [tutorials, setTutorials] = useState([]);
+  const [assignments, setAssignments] = useState([]);
 
   // Load courses on mount
   useEffect(() => {
     loadCourses();
+    loadActivities();
   }, []);
 
   // Reload courses when screen comes into focus
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
       loadCourses();
+      loadActivities();
     });
     return unsubscribe;
   }, [navigation]);
@@ -83,9 +89,58 @@ const CoursesScreen = ({ navigation }) => {
     }
   };
 
+  const loadActivities = async () => {
+    try {
+      const token = await AsyncStorage.getItem('@auth_token');
+      if (!token) return;
+
+      // Check user role
+      const userDataString = await AsyncStorage.getItem('@user_data');
+      if (userDataString) {
+        const userData = JSON.parse(userDataString);
+        if (userData.role !== 'course_rep') {
+          return;
+        }
+      }
+
+      // Fetch all activities in parallel
+      const [quizzesRes, tutorialsRes, assignmentsRes] = await Promise.all([
+        fetch(getApiUrl('quizzes/my-quizzes'), {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` },
+        }),
+        fetch(getApiUrl('tutorials/my-tutorials'), {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` },
+        }),
+        fetch(getApiUrl('assignments/my-assignments'), {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` },
+        }),
+      ]);
+
+      const quizzesData = await quizzesRes.json();
+      const tutorialsData = await tutorialsRes.json();
+      const assignmentsData = await assignmentsRes.json();
+
+      if (quizzesData.success) {
+        setQuizzes(quizzesData.data.quizzes || []);
+      }
+      if (tutorialsData.success) {
+        setTutorials(tutorialsData.data.tutorials || []);
+      }
+      if (assignmentsData.success) {
+        setAssignments(assignmentsData.data.assignments || []);
+      }
+    } catch (error) {
+      console.error('Error loading activities:', error);
+    }
+  };
+
   const onRefresh = () => {
     setRefreshing(true);
     loadCourses();
+    loadActivities();
   };
 
   const handleDeleteCourse = (course) => {
@@ -156,8 +211,134 @@ const CoursesScreen = ({ navigation }) => {
     setExpandedCourseId(expandedCourseId === courseId ? null : courseId);
   };
 
+  // Check if activity is more than 12 hours past its scheduled time
+  const isActivityExpired = (activity) => {
+    try {
+      const dateStr = activity.date || activity.due_date || activity.dueDate;
+      const timeStr = activity.time;
+      
+      if (!dateStr) return false; // If no date, don't filter it out
+      
+      // Parse date (format: DD/MM/YYYY)
+      const dateParts = dateStr.split('/');
+      if (dateParts.length !== 3) return false;
+      
+      const day = parseInt(dateParts[0], 10);
+      const month = parseInt(dateParts[1], 10) - 1; // Month is 0-indexed
+      const year = parseInt(dateParts[2], 10);
+      
+      // Parse time (format: HH:MM or HH:MM AM/PM)
+      let hours = 0;
+      let minutes = 0;
+      
+      if (timeStr) {
+        const timeMatch = timeStr.match(/(\d+):(\d+)\s*(AM|PM)?/i);
+        if (timeMatch) {
+          hours = parseInt(timeMatch[1], 10);
+          minutes = parseInt(timeMatch[2], 10);
+          const period = timeMatch[3];
+          
+          // Convert to 24-hour format
+          if (period) {
+            if (period.toUpperCase() === 'PM' && hours !== 12) {
+              hours += 12;
+            } else if (period.toUpperCase() === 'AM' && hours === 12) {
+              hours = 0;
+            }
+          }
+        }
+      }
+      
+      // Create scheduled datetime
+      const scheduledDate = new Date(year, month, day, hours, minutes, 0);
+      
+      // Get current time
+      const now = new Date();
+      
+      // Calculate 12 hours after scheduled time
+      const expiryTime = new Date(scheduledDate.getTime() + 12 * 60 * 60 * 1000);
+      
+      // Return true if current time is past the expiry time (12 hours after scheduled)
+      return now > expiryTime;
+    } catch (error) {
+      console.error('Error checking activity expiry:', error);
+      return false; // If error parsing, don't filter it out
+    }
+  };
+
+  // Get filtered activities (excluding expired ones)
+  const getFilteredQuizzes = () => {
+    return quizzes.filter(quiz => !isActivityExpired(quiz));
+  };
+
+  const getFilteredTutorials = () => {
+    return tutorials.filter(tutorial => !isActivityExpired(tutorial));
+  };
+
+  const getFilteredAssignments = () => {
+    return assignments.filter(assignment => !isActivityExpired(assignment));
+  };
+
+  // Get counts for each filter (only non-expired activities)
+  const getFilterCounts = () => {
+    const quizCount = getFilteredQuizzes().length;
+    const tutorialCount = getFilteredTutorials().length;
+    const assignmentCount = getFilteredAssignments().length;
+    return { quizCount, tutorialCount, assignmentCount };
+  };
+
+  // Filter courses based on selected filter
+  const getFilteredCourses = () => {
+    if (selectedFilter === 'courses') {
+      return courses;
+    }
+
+    const courseIds = new Set();
+    
+    if (selectedFilter === 'quizzes') {
+      getFilteredQuizzes().forEach(quiz => {
+        const courseId = quiz.course_id?._id || quiz.course_id || quiz.courseId;
+        if (courseId) courseIds.add(courseId.toString());
+      });
+    } else if (selectedFilter === 'tutorials') {
+      getFilteredTutorials().forEach(tutorial => {
+        const courseId = tutorial.course_id?._id || tutorial.course_id || tutorial.courseId;
+        if (courseId) courseIds.add(courseId.toString());
+      });
+    } else if (selectedFilter === 'assignments') {
+      getFilteredAssignments().forEach(assignment => {
+        const courseId = assignment.course_id?._id || assignment.course_id || assignment.courseId;
+        if (courseId) courseIds.add(courseId.toString());
+      });
+    }
+
+    return courses.filter(course => {
+      const courseId = course.id || course._id;
+      return courseIds.has(courseId.toString());
+    });
+  };
+
+  // Get activities for a specific course (only non-expired)
+  const getCourseActivities = (courseId) => {
+    const courseIdStr = courseId.toString();
+    return {
+      quizzes: getFilteredQuizzes().filter(q => {
+        const id = q.course_id?._id || q.course_id || q.courseId;
+        return id && id.toString() === courseIdStr;
+      }),
+      tutorials: getFilteredTutorials().filter(t => {
+        const id = t.course_id?._id || t.course_id || t.courseId;
+        return id && id.toString() === courseIdStr;
+      }),
+      assignments: getFilteredAssignments().filter(a => {
+        const id = a.course_id?._id || a.course_id || a.courseId;
+        return id && id.toString() === courseIdStr;
+      }),
+    };
+  };
+
   // Animated Activity Badges Component
-  const AnimatedActivityBadges = ({ isExpanded, navigation, course }) => {
+  const AnimatedActivityBadges = ({ isExpanded, navigation, course, courseActivities }) => {
     // Individual animated values for each badge
     const quizFade = useRef(new Animated.Value(0)).current;
     const quizTranslateY = useRef(new Animated.Value(-10)).current;
@@ -305,7 +486,16 @@ const CoursesScreen = ({ navigation }) => {
           activeOpacity={0.7}
           onPress={() => {
             if (isExpanded) {
-              navigation.navigate('CreateQuiz', { course });
+              if (courseActivities?.quizzes?.length > 0) {
+                // Navigate to edit quiz screen or show list
+                navigation.navigate('CreateQuiz', { 
+                  course, 
+                  editMode: true,
+                  activities: courseActivities.quizzes 
+                });
+              } else {
+                navigation.navigate('CreateQuiz', { course });
+              }
             }
           }}
           disabled={!isExpanded}
@@ -325,14 +515,24 @@ const CoursesScreen = ({ navigation }) => {
             pointerEvents={isExpanded ? 'auto' : 'none'}
           >
             <Ionicons name="checkmark-circle-outline" size={14} color="#3b82f6" />
-            <Text style={[styles.activityBadgeText, { color: '#3b82f6' }]}>Quiz</Text>
+            <Text style={[styles.activityBadgeText, { color: '#3b82f6' }]}>
+              Quiz {courseActivities?.quizzes?.length > 0 && `(${courseActivities.quizzes.length})`}
+            </Text>
           </Animated.View>
         </TouchableOpacity>
         <TouchableOpacity
           activeOpacity={0.7}
           onPress={() => {
             if (isExpanded) {
-              navigation.navigate('CreateTutorial', { course });
+              if (courseActivities?.tutorials?.length > 0) {
+                navigation.navigate('CreateTutorial', { 
+                  course, 
+                  editMode: true,
+                  activities: courseActivities.tutorials 
+                });
+              } else {
+                navigation.navigate('CreateTutorial', { course });
+              }
             }
           }}
           disabled={!isExpanded}
@@ -352,14 +552,24 @@ const CoursesScreen = ({ navigation }) => {
             pointerEvents={isExpanded ? 'auto' : 'none'}
           >
             <Ionicons name="school-outline" size={14} color="#10b981" />
-            <Text style={[styles.activityBadgeText, { color: '#10b981' }]}>Tutorial</Text>
+            <Text style={[styles.activityBadgeText, { color: '#10b981' }]}>
+              Tutorial {courseActivities?.tutorials?.length > 0 && `(${courseActivities.tutorials.length})`}
+            </Text>
           </Animated.View>
         </TouchableOpacity>
         <TouchableOpacity
           activeOpacity={0.7}
           onPress={() => {
             if (isExpanded) {
-              navigation.navigate('CreateAssignment', { course });
+              if (courseActivities?.assignments?.length > 0) {
+                navigation.navigate('CreateAssignment', { 
+                  course, 
+                  editMode: true,
+                  activities: courseActivities.assignments 
+                });
+              } else {
+                navigation.navigate('CreateAssignment', { course });
+              }
             }
           }}
           disabled={!isExpanded}
@@ -379,7 +589,9 @@ const CoursesScreen = ({ navigation }) => {
             pointerEvents={isExpanded ? 'auto' : 'none'}
           >
             <Ionicons name="document-text-outline" size={14} color="#f97316" />
-            <Text style={[styles.activityBadgeText, { color: '#f97316' }]}>Assignment</Text>
+            <Text style={[styles.activityBadgeText, { color: '#f97316' }]}>
+              Assignment {courseActivities?.assignments?.length > 0 && `(${courseActivities.assignments.length})`}
+            </Text>
           </Animated.View>
         </TouchableOpacity>
       </View>
@@ -412,16 +624,367 @@ const CoursesScreen = ({ navigation }) => {
           </TouchableOpacity>
         </View>
 
+        {/* Filter Tabs */}
+        {!loading && (
+          <View style={styles.filterTabsContainer}>
+            <TouchableOpacity
+              style={[
+                styles.filterTab,
+                selectedFilter === 'courses' && styles.filterTabActive
+              ]}
+              onPress={() => setSelectedFilter('courses')}
+            >
+              <Ionicons name="book-outline" size={14} color={selectedFilter === 'courses' ? '#374151' : '#6b7280'} />
+              <Text
+                style={[
+                  styles.filterTabText,
+                  selectedFilter === 'courses' && styles.filterTabTextActive
+                ]}
+              >
+                Courses
+              </Text>
+              {courses.length > 0 && (
+                <View style={styles.filterTabBadge}>
+                  <Text style={styles.filterTabBadgeText}>{courses.length}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.filterTab,
+                styles.filterTabQuiz,
+                selectedFilter === 'quizzes' && styles.filterTabQuizActive
+              ]}
+              onPress={() => setSelectedFilter('quizzes')}
+            >
+              <Ionicons name="checkmark-circle-outline" size={14} color="#3b82f6" />
+              <Text
+                style={[
+                  styles.filterTabText,
+                  styles.filterTabTextQuiz,
+                  selectedFilter === 'quizzes' && styles.filterTabTextQuizActive
+                ]}
+              >
+                Quiz
+              </Text>
+              {getFilterCounts().quizCount > 0 && (
+                <View style={styles.filterTabBadge}>
+                  <Text style={styles.filterTabBadgeText}>{getFilterCounts().quizCount}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.filterTab,
+                styles.filterTabTutorial,
+                selectedFilter === 'tutorials' && styles.filterTabTutorialActive
+              ]}
+              onPress={() => setSelectedFilter('tutorials')}
+            >
+              <Ionicons name="school-outline" size={14} color="#10b981" />
+              <Text
+                style={[
+                  styles.filterTabText,
+                  styles.filterTabTextTutorial,
+                  selectedFilter === 'tutorials' && styles.filterTabTextTutorialActive
+                ]}
+              >
+                Tutorial
+              </Text>
+              {getFilterCounts().tutorialCount > 0 && (
+                <View style={styles.filterTabBadge}>
+                  <Text style={styles.filterTabBadgeText}>{getFilterCounts().tutorialCount}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.filterTab,
+                styles.filterTabAssignment,
+                styles.filterTabWide,
+                selectedFilter === 'assignments' && styles.filterTabAssignmentActive
+              ]}
+              onPress={() => setSelectedFilter('assignments')}
+            >
+              <Ionicons name="document-text-outline" size={14} color="#f97316" />
+              <Text
+                style={[
+                  styles.filterTabText,
+                  styles.filterTabTextAssignment,
+                  selectedFilter === 'assignments' && styles.filterTabTextAssignmentActive
+                ]}
+              >
+                Assignment
+              </Text>
+              {getFilterCounts().assignmentCount > 0 && (
+                <View style={styles.filterTabBadge}>
+                  <Text style={styles.filterTabBadgeText}>{getFilterCounts().assignmentCount}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Loading State */}
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#2563eb" />
             <Text style={styles.loadingText}>Loading courses...</Text>
           </View>
-        ) : courses.length > 0 ? (
+        ) : selectedFilter !== 'courses' ? (
+          /* Activities List */
+          <View style={styles.activitiesList}>
+            {selectedFilter === 'quizzes' && getFilteredQuizzes().length > 0 && getFilteredQuizzes().map((quiz) => (
+              <View key={quiz.id || quiz._id} style={styles.activityCard}>
+                <View style={styles.activityCardLeftBorder} />
+                <View style={styles.activityCardContent}>
+                  <View style={styles.activityCardHeader}>
+                    <View style={styles.activityTitleSection}>
+                      <Text style={styles.activityNameText}>{quiz.quiz_name || quiz.quizName}</Text>
+                      <Text style={styles.activityCourseText}>
+                        {quiz.course_code || quiz.courseCode} - {quiz.course_name || quiz.courseName}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.activityEditButton}
+                      onPress={() => {
+                        try {
+                          console.log('Edit quiz pressed, quiz data:', JSON.stringify(quiz, null, 2));
+                          console.log('Available courses:', courses.length);
+                          
+                          // Try to find course from courses array
+                          let course = courses.find(c => {
+                            const courseId = c.id || c._id;
+                            const quizCourseId = quiz.course_id?._id || quiz.course_id || quiz.courseId;
+                            const match = courseId && quizCourseId && courseId.toString() === quizCourseId.toString();
+                            if (match) {
+                              console.log('Found course match:', courseId);
+                            }
+                            return match;
+                          });
+
+                          // If course not found, try to construct it from quiz data
+                          if (!course) {
+                            console.log('Course not found in array, constructing from quiz data');
+                            const quizCourseId = quiz.course_id?._id || quiz.course_id || quiz.courseId;
+                            if (quizCourseId) {
+                              course = {
+                                id: quizCourseId,
+                                _id: quizCourseId,
+                                course_code: quiz.course_code || quiz.courseCode,
+                                courseCode: quiz.course_code || quiz.courseCode,
+                                course_name: quiz.course_name || quiz.courseName,
+                                courseName: quiz.course_name || quiz.courseName,
+                              };
+                              console.log('Constructed course:', course);
+                            }
+                          }
+
+                          if (course) {
+                            console.log('Navigating to CreateQuiz with:', { 
+                              courseId: course.id || course._id,
+                              quizId: quiz.id || quiz._id,
+                              editMode: true 
+                            });
+                            navigation.navigate('CreateQuiz', { course, quiz, editMode: true });
+                          } else {
+                            console.error('Could not find or construct course');
+                            Alert.alert('Error', 'Could not find course information. Please try again.');
+                          }
+                        } catch (error) {
+                          console.error('Error navigating to edit quiz:', error);
+                          Alert.alert('Error', 'Failed to open quiz editor. Please try again.');
+                        }
+                      }}
+                    >
+                      <Ionicons name="create-outline" size={18} color="#2563eb" />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.activityDetails}>
+                    <View style={styles.detailRow}>
+                      <Ionicons name="calendar-outline" size={16} color="#6b7280" />
+                      <Text style={styles.detailText}>{quiz.date}</Text>
+                    </View>
+                    <View style={styles.detailRow}>
+                      <Ionicons name="time-outline" size={16} color="#6b7280" />
+                      <Text style={styles.detailText}>{quiz.time}</Text>
+                    </View>
+                    {quiz.venue && (
+                      <View style={styles.detailRow}>
+                        <Ionicons name="location-outline" size={16} color="#6b7280" />
+                        <Text style={styles.detailText}>{quiz.venue}</Text>
+                      </View>
+                    )}
+                    {quiz.topic && (
+                      <View style={styles.detailRow}>
+                        <Ionicons name="book-outline" size={16} color="#6b7280" />
+                        <Text style={styles.detailText}>{quiz.topic}</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              </View>
+            ))}
+            {selectedFilter === 'tutorials' && getFilteredTutorials().length > 0 && getFilteredTutorials().map((tutorial) => (
+              <View key={tutorial.id || tutorial._id} style={styles.activityCard}>
+                <View style={[styles.activityCardLeftBorder, { backgroundColor: '#10b981' }]} />
+                <View style={styles.activityCardContent}>
+                  <View style={styles.activityCardHeader}>
+                    <View style={styles.activityTitleSection}>
+                      <Text style={styles.activityNameText}>{tutorial.tutorial_name || tutorial.tutorialName}</Text>
+                      <Text style={styles.activityCourseText}>
+                        {tutorial.course_code || tutorial.courseCode} - {tutorial.course_name || tutorial.courseName}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.activityEditButton}
+                      onPress={() => {
+                        try {
+                          // Try to find course from courses array
+                          let course = courses.find(c => {
+                            const courseId = c.id || c._id;
+                            const tutorialCourseId = tutorial.course_id?._id || tutorial.course_id || tutorial.courseId;
+                            return courseId && tutorialCourseId && courseId.toString() === tutorialCourseId.toString();
+                          });
+
+                          // If course not found, try to construct it from tutorial data
+                          if (!course) {
+                            const tutorialCourseId = tutorial.course_id?._id || tutorial.course_id || tutorial.courseId;
+                            if (tutorialCourseId) {
+                              course = {
+                                id: tutorialCourseId,
+                                _id: tutorialCourseId,
+                                course_code: tutorial.course_code || tutorial.courseCode,
+                                courseCode: tutorial.course_code || tutorial.courseCode,
+                                course_name: tutorial.course_name || tutorial.courseName,
+                                courseName: tutorial.course_name || tutorial.courseName,
+                              };
+                            }
+                          }
+
+                          if (course) {
+                            navigation.navigate('CreateTutorial', { course, tutorial, editMode: true });
+                          } else {
+                            Alert.alert('Error', 'Could not find course information. Please try again.');
+                          }
+                        } catch (error) {
+                          console.error('Error navigating to edit tutorial:', error);
+                          Alert.alert('Error', 'Failed to open tutorial editor. Please try again.');
+                        }
+                      }}
+                    >
+                      <Ionicons name="create-outline" size={18} color="#2563eb" />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.activityDetails}>
+                    <View style={styles.detailRow}>
+                      <Ionicons name="calendar-outline" size={16} color="#6b7280" />
+                      <Text style={styles.detailText}>{tutorial.date}</Text>
+                    </View>
+                    <View style={styles.detailRow}>
+                      <Ionicons name="time-outline" size={16} color="#6b7280" />
+                      <Text style={styles.detailText}>{tutorial.time}</Text>
+                    </View>
+                    {tutorial.venue && (
+                      <View style={styles.detailRow}>
+                        <Ionicons name="location-outline" size={16} color="#6b7280" />
+                        <Text style={styles.detailText}>{tutorial.venue}</Text>
+                      </View>
+                    )}
+                    {tutorial.topic && (
+                      <View style={styles.detailRow}>
+                        <Ionicons name="book-outline" size={16} color="#6b7280" />
+                        <Text style={styles.detailText}>{tutorial.topic}</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              </View>
+            ))}
+            {selectedFilter === 'assignments' && getFilteredAssignments().length > 0 && getFilteredAssignments().map((assignment) => (
+              <View key={assignment.id || assignment._id} style={styles.activityCard}>
+                <View style={[styles.activityCardLeftBorder, { backgroundColor: '#f97316' }]} />
+                <View style={styles.activityCardContent}>
+                  <View style={styles.activityCardHeader}>
+                    <View style={styles.activityTitleSection}>
+                      <Text style={styles.activityNameText}>{assignment.assignment_name || assignment.assignmentName}</Text>
+                      <Text style={styles.activityCourseText}>
+                        {assignment.course_code || assignment.courseCode} - {assignment.course_name || assignment.courseName}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.activityEditButton}
+                      onPress={() => {
+                        try {
+                          // Try to find course from courses array
+                          let course = courses.find(c => {
+                            const courseId = c.id || c._id;
+                            const assignmentCourseId = assignment.course_id?._id || assignment.course_id || assignment.courseId;
+                            return courseId && assignmentCourseId && courseId.toString() === assignmentCourseId.toString();
+                          });
+
+                          // If course not found, try to construct it from assignment data
+                          if (!course) {
+                            const assignmentCourseId = assignment.course_id?._id || assignment.course_id || assignment.courseId;
+                            if (assignmentCourseId) {
+                              course = {
+                                id: assignmentCourseId,
+                                _id: assignmentCourseId,
+                                course_code: assignment.course_code || assignment.courseCode,
+                                courseCode: assignment.course_code || assignment.courseCode,
+                                course_name: assignment.course_name || assignment.courseName,
+                                courseName: assignment.course_name || assignment.courseName,
+                              };
+                            }
+                          }
+
+                          if (course) {
+                            navigation.navigate('CreateAssignment', { course, assignment, editMode: true });
+                          } else {
+                            Alert.alert('Error', 'Could not find course information. Please try again.');
+                          }
+                        } catch (error) {
+                          console.error('Error navigating to edit assignment:', error);
+                          Alert.alert('Error', 'Failed to open assignment editor. Please try again.');
+                        }
+                      }}
+                    >
+                      <Ionicons name="create-outline" size={18} color="#2563eb" />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.activityDetails}>
+                    <View style={styles.detailRow}>
+                      <Ionicons name="calendar-outline" size={16} color="#6b7280" />
+                      <Text style={styles.detailText}>{assignment.due_date || assignment.dueDate}</Text>
+                    </View>
+                    {assignment.description && (
+                      <View style={styles.detailRow}>
+                        <Ionicons name="document-text-outline" size={16} color="#6b7280" />
+                        <Text style={styles.detailText} numberOfLines={2}>{assignment.description}</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              </View>
+            ))}
+            {((selectedFilter === 'quizzes' && getFilteredQuizzes().length === 0) ||
+              (selectedFilter === 'tutorials' && getFilteredTutorials().length === 0) ||
+              (selectedFilter === 'assignments' && getFilteredAssignments().length === 0)) && (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyTitle}>
+                  No {selectedFilter === 'quizzes' ? 'Quizzes' : selectedFilter === 'tutorials' ? 'Tutorials' : 'Assignments'}
+                </Text>
+                <Text style={styles.emptyDescription}>
+                  You haven't created any {selectedFilter === 'quizzes' ? 'quizzes' : selectedFilter === 'tutorials' ? 'tutorials' : 'assignments'} yet.
+                </Text>
+              </View>
+            )}
+          </View>
+        ) : getFilteredCourses().length > 0 ? (
           /* Courses List */
           <View style={styles.coursesList}>
-            {courses.map((course) => {
+            {getFilteredCourses().map((course) => {
+              const courseActivities = getCourseActivities(course.id || course._id);
               // Map backend field names to frontend format
               const courseForEdit = {
                 id: course.id || course._id,
@@ -469,6 +1032,7 @@ const CoursesScreen = ({ navigation }) => {
                         isExpanded={isExpanded} 
                         navigation={navigation}
                         course={course}
+                        courseActivities={courseActivities}
                       />
                       <View style={styles.courseDetails}>
                         <View style={styles.detailRow}>
@@ -659,6 +1223,68 @@ const styles = StyleSheet.create({
   coursesList: {
     gap: 16,
   },
+  activitiesList: {
+    gap: 16,
+  },
+  activityCard: {
+    flexDirection: 'row',
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    borderWidth: 0,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.02,
+    shadowRadius: 2,
+    elevation: 1,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  activityCardLeftBorder: {
+    width: 4,
+    backgroundColor: '#3b82f6',
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+  },
+  activityCardContent: {
+    flex: 1,
+    padding: 16,
+    paddingLeft: 20,
+  },
+  activityCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  activityTitleSection: {
+    flex: 1,
+  },
+  activityNameText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  activityCourseText: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: '#6b7280',
+  },
+  activityEditButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  activityDetails: {
+    gap: 6,
+  },
   courseCardWrapper: {
     flexDirection: 'row',
     marginBottom: 16,
@@ -751,17 +1377,17 @@ const styles = StyleSheet.create({
   quizBadge: {
     backgroundColor: '#dbeafe',
     borderColor: '#3b82f6',
-    width: 65,
+    minWidth: 65,
   },
   tutorialBadge: {
     backgroundColor: '#d1fae5',
     borderColor: '#10b981',
-    width: 85,
+    minWidth: 85,
   },
   assignmentBadge: {
     backgroundColor: '#fed7aa',
     borderColor: '#f97316',
-    width: 105,
+    minWidth: 105,
   },
   courseDetails: {
     marginBottom: 12,
@@ -939,6 +1565,106 @@ const styles = StyleSheet.create({
   navLabelActive: {
     color: '#2563eb',
     fontWeight: '600',
+  },
+  filterTabsContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 20,
+    paddingHorizontal: 4,
+  },
+  filterTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 5,
+    position: 'relative',
+    minHeight: 28,
+  },
+  filterTabWide: {
+    flex: 1.3,
+  },
+  filterTabActive: {
+    backgroundColor: '#f3f4f6',
+    borderColor: '#d1d5db',
+  },
+  filterTabQuiz: {
+    backgroundColor: '#dbeafe',
+    borderColor: '#3b82f6',
+  },
+  filterTabQuizActive: {
+    backgroundColor: '#bfdbfe',
+    borderColor: '#2563eb',
+  },
+  filterTabTutorial: {
+    backgroundColor: '#d1fae5',
+    borderColor: '#10b981',
+  },
+  filterTabTutorialActive: {
+    backgroundColor: '#a7f3d0',
+    borderColor: '#059669',
+  },
+  filterTabAssignment: {
+    backgroundColor: '#fed7aa',
+    borderColor: '#f97316',
+  },
+  filterTabAssignmentActive: {
+    backgroundColor: '#fdba74',
+    borderColor: '#ea580c',
+  },
+  filterTabText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#6b7280',
+  },
+  filterTabTextActive: {
+    color: '#374151',
+    fontWeight: '600',
+  },
+  filterTabTextQuiz: {
+    color: '#3b82f6',
+    fontWeight: '500',
+  },
+  filterTabTextQuizActive: {
+    color: '#2563eb',
+    fontWeight: '600',
+  },
+  filterTabTextTutorial: {
+    color: '#10b981',
+    fontWeight: '500',
+  },
+  filterTabTextTutorialActive: {
+    color: '#059669',
+    fontWeight: '600',
+  },
+  filterTabTextAssignment: {
+    color: '#f97316',
+    fontWeight: '500',
+  },
+  filterTabTextAssignmentActive: {
+    color: '#ea580c',
+    fontWeight: '600',
+  },
+  filterTabBadge: {
+    position: 'absolute',
+    top: -4,
+    left: -4,
+    backgroundColor: '#ef4444',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  filterTabBadgeText: {
+    color: '#ffffff',
+    fontSize: 8,
+    fontWeight: '700',
   },
 });
 

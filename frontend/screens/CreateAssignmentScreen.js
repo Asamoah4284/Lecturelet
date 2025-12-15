@@ -20,6 +20,8 @@ import { getApiUrl } from '../config/api';
 
 const CreateAssignmentScreen = ({ navigation, route }) => {
   const course = route.params?.course;
+  const assignment = route.params?.assignment; // For edit mode
+  const editMode = route.params?.editMode || false;
   const [loading, setLoading] = useState(false);
   const [assignmentName, setAssignmentName] = useState('');
   const [topic, setTopic] = useState('');
@@ -36,6 +38,49 @@ const CreateAssignmentScreen = ({ navigation, route }) => {
       ]);
     }
   }, [course, navigation]);
+
+  // Load assignment data if in edit mode
+  useEffect(() => {
+    if (editMode && assignment) {
+      setAssignmentName(assignment.assignment_name || assignment.assignmentName || '');
+      setTopic(assignment.topic || '');
+      setVenue(assignment.venue || '');
+      
+      // Parse date (format: DD/MM/YYYY)
+      if (assignment.date || assignment.due_date || assignment.dueDate) {
+        const dateStr = assignment.date || assignment.due_date || assignment.dueDate;
+        const dateParts = dateStr.split('/');
+        if (dateParts.length === 3) {
+          const day = parseInt(dateParts[0], 10);
+          const month = parseInt(dateParts[1], 10) - 1; // Month is 0-indexed
+          const year = parseInt(dateParts[2], 10);
+          setSelectedDate(new Date(year, month, day));
+        }
+      }
+      
+      // Parse time (format: HH:MM AM/PM)
+      if (assignment.time) {
+        const timeMatch = assignment.time.match(/(\d+):(\d+)\s*(AM|PM)?/i);
+        if (timeMatch) {
+          let hours = parseInt(timeMatch[1], 10);
+          const minutes = parseInt(timeMatch[2], 10);
+          const period = timeMatch[3];
+          
+          // Convert to 24-hour format
+          if (period) {
+            if (period.toUpperCase() === 'PM' && hours !== 12) {
+              hours += 12;
+            } else if (period.toUpperCase() === 'AM' && hours === 12) {
+              hours = 0;
+            }
+          }
+          
+          const now = new Date();
+          setSelectedTime(new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0));
+        }
+      }
+    }
+  }, [editMode, assignment]);
   
   // Date picker state
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -140,9 +185,14 @@ const CreateAssignmentScreen = ({ navigation, route }) => {
         courseName: course?.course_name || course?.courseName,
       };
 
-      // TODO: Replace with actual API endpoint when backend is ready
-      const response = await fetch(getApiUrl('assignments/create'), {
-        method: 'POST',
+      const assignmentId = assignment?.id || assignment?._id;
+      const url = editMode && assignmentId 
+        ? getApiUrl(`assignments/${assignmentId}`)
+        : getApiUrl('assignments/create');
+      const method = editMode ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method: method,
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
@@ -153,18 +203,18 @@ const CreateAssignmentScreen = ({ navigation, route }) => {
       const data = await response.json();
 
       if (response.ok && data.success) {
-        Alert.alert('Success', 'Assignment created successfully', [
+        Alert.alert('Success', editMode ? 'Assignment updated successfully' : 'Assignment created successfully', [
           {
             text: 'OK',
             onPress: () => navigation.goBack(),
           },
         ]);
       } else {
-        Alert.alert('Error', data.message || 'Failed to create assignment');
+        Alert.alert('Error', data.message || (editMode ? 'Failed to update assignment' : 'Failed to create assignment'));
       }
     } catch (error) {
-      console.error('Error creating assignment:', error);
-      Alert.alert('Error', 'Failed to create assignment. Please try again.');
+      console.error('Error saving assignment:', error);
+      Alert.alert('Error', editMode ? 'Failed to update assignment. Please try again.' : 'Failed to create assignment. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -182,7 +232,7 @@ const CreateAssignmentScreen = ({ navigation, route }) => {
         >
           <Ionicons name="arrow-back" size={24} color="#ffffff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Create Assignment</Text>
+        <Text style={styles.headerTitle}>{editMode ? 'Edit Assignment' : 'Create Assignment'}</Text>
         <View style={styles.placeholder} />
       </View>
 
@@ -228,17 +278,17 @@ const CreateAssignmentScreen = ({ navigation, route }) => {
           />
         </View>
 
-        {/* Date */}
+        {/* Submission Deadline Date */}
         <View style={styles.inputGroup}>
           <Text style={styles.label}>
-            Date <Text style={styles.required}>*</Text>
+            Submission Deadline Date <Text style={styles.required}>*</Text>
           </Text>
           <TouchableOpacity
             style={styles.pickerButton}
             onPress={() => setShowDatePicker(true)}
           >
             <Text style={[styles.pickerText, !selectedDate && styles.placeholderText]}>
-              {selectedDate ? formatDate(selectedDate) : 'Select date'}
+              {selectedDate ? formatDate(selectedDate) : 'Select deadline date'}
             </Text>
             <Ionicons name="calendar-outline" size={20} color="#2563eb" />
           </TouchableOpacity>
@@ -253,17 +303,17 @@ const CreateAssignmentScreen = ({ navigation, route }) => {
           )}
         </View>
 
-        {/* Time */}
+        {/* Submission Deadline Time */}
         <View style={styles.inputGroup}>
           <Text style={styles.label}>
-            Time <Text style={styles.required}>*</Text>
+            Submission Deadline Time <Text style={styles.required}>*</Text>
           </Text>
           <TouchableOpacity
             style={styles.pickerButton}
             onPress={() => setShowTimePicker(true)}
           >
             <Text style={[styles.pickerText, !selectedTime && styles.placeholderText]}>
-              {selectedTime ? formatTime(selectedTime) : 'Select time'}
+              {selectedTime ? formatTime(selectedTime) : 'Select deadline time'}
             </Text>
             <Ionicons name="time-outline" size={20} color="#2563eb" />
           </TouchableOpacity>
@@ -310,7 +360,7 @@ const CreateAssignmentScreen = ({ navigation, route }) => {
 
         {/* Submit Button */}
         <Button
-          title={loading ? 'Creating...' : 'Create Assignment'}
+          title={loading ? (editMode ? 'Updating...' : 'Creating...') : (editMode ? 'Update Assignment' : 'Create Assignment')}
           onPress={handleCreateAssignment}
           variant="primary"
           style={styles.submitButton}
@@ -440,3 +490,4 @@ const styles = StyleSheet.create({
 });
 
 export default CreateAssignmentScreen;
+

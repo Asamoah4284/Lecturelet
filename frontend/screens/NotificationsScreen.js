@@ -9,6 +9,7 @@ import {
   Platform,
   ActivityIndicator,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -118,6 +119,55 @@ const NotificationsScreen = ({ navigation }) => {
     }
   };
 
+  const handleDeleteNotification = async (notificationId) => {
+    try {
+      const token = await AsyncStorage.getItem('@auth_token');
+      if (!token) return;
+
+      const response = await fetch(getApiUrl(`notifications/${notificationId}`), {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        // Remove from local state
+        const deletedNotification = notifications.find(n => n.id === notificationId);
+        setNotifications(notifications.filter(notif => notif.id !== notificationId));
+        
+        // Update unread count if deleted notification was unread
+        if (deletedNotification && !deletedNotification.is_read) {
+          setUnreadCount(Math.max(0, unreadCount - 1));
+        }
+      } else {
+        const data = await response.json();
+        Alert.alert('Error', data.message || 'Failed to delete notification');
+      }
+    } catch (error) {
+      console.error('Error deleting notification:', error);
+      Alert.alert('Error', 'Failed to delete notification. Please try again.');
+    }
+  };
+
+  const confirmDelete = (notificationId) => {
+    Alert.alert(
+      'Delete Notification',
+      'Are you sure you want to delete this notification?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => handleDeleteNotification(notificationId),
+        },
+      ]
+    );
+  };
+
   const getNotificationIcon = (type) => {
     switch (type) {
       case 'lecture_reminder':
@@ -182,46 +232,57 @@ const NotificationsScreen = ({ navigation }) => {
         ) : notifications.length > 0 ? (
           <View style={styles.notificationsList}>
             {notifications.map((notification) => (
-              <TouchableOpacity
+              <View
                 key={notification.id}
                 style={[
                   styles.notificationCard,
                   !notification.is_read && styles.notificationCardUnread
                 ]}
-                onPress={() => handleMarkAsRead(notification.id)}
-                activeOpacity={0.7}
               >
-                <View style={styles.notificationIconContainer}>
-                  <Ionicons 
-                    name={getNotificationIcon(notification.type)} 
-                    size={24} 
-                    color={notification.is_read ? "#6b7280" : "#2563eb"} 
-                  />
-                  {!notification.is_read && <View style={styles.unreadDot} />}
-                </View>
-                <View style={styles.notificationContent}>
-                  <View style={styles.notificationHeader}>
-                    <Text style={[
-                      styles.notificationTitle,
-                      !notification.is_read && styles.notificationTitleUnread
-                    ]}>
-                      {notification.title}
-                    </Text>
-                    <Text style={styles.notificationTime}>
-                      {formatDate(notification.created_at)}
-                    </Text>
+                <TouchableOpacity
+                  style={styles.notificationContentWrapper}
+                  onPress={() => handleMarkAsRead(notification.id)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.notificationIconContainer}>
+                    <Ionicons 
+                      name={getNotificationIcon(notification.type)} 
+                      size={24} 
+                      color={notification.is_read ? "#6b7280" : "#2563eb"} 
+                    />
+                    {!notification.is_read && <View style={styles.unreadDot} />}
                   </View>
-                  <Text style={styles.notificationMessage} numberOfLines={3}>
-                    {notification.message}
-                  </Text>
-                  {notification.course_name && (
-                    <View style={styles.courseBadge}>
-                      <Ionicons name="book-outline" size={12} color="#2563eb" />
-                      <Text style={styles.courseBadgeText}>{notification.course_name}</Text>
+                  <View style={styles.notificationContent}>
+                    <View style={styles.notificationHeader}>
+                      <Text style={[
+                        styles.notificationTitle,
+                        !notification.is_read && styles.notificationTitleUnread
+                      ]}>
+                        {notification.title}
+                      </Text>
+                      <Text style={styles.notificationTime}>
+                        {formatDate(notification.created_at)}
+                      </Text>
                     </View>
-                  )}
-                </View>
-              </TouchableOpacity>
+                    <Text style={styles.notificationMessage} numberOfLines={3}>
+                      {notification.message}
+                    </Text>
+                    {notification.course_name && (
+                      <View style={styles.courseBadge}>
+                        <Ionicons name="book-outline" size={12} color="#2563eb" />
+                        <Text style={styles.courseBadgeText}>{notification.course_name}</Text>
+                      </View>
+                    )}
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.deleteButton}
+                  onPress={() => confirmDelete(notification.id)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                </TouchableOpacity>
+              </View>
             ))}
           </View>
         ) : (
@@ -477,12 +538,23 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: '#e5e7eb',
+    alignItems: 'center',
   },
   notificationCardUnread: {
     backgroundColor: '#eff6ff',
     borderColor: '#dbeafe',
     borderLeftWidth: 4,
     borderLeftColor: '#2563eb',
+  },
+  notificationContentWrapper: {
+    flexDirection: 'row',
+    flex: 1,
+  },
+  deleteButton: {
+    padding: 8,
+    marginLeft: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   notificationIconContainer: {
     width: 48,

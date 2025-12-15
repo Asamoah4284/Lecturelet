@@ -131,7 +131,7 @@ const CourseRepScreen = ({ navigation }) => {
 
   const closeNotificationModal = () => {
     setShowNotificationModal(false);
-    setSelectedCourse(null);
+    setSelectedCourse(null)
     setNotificationType(null);
     setQuizTitle('');
     setQuizDate(new Date());

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Platform,
+  Animated,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,6 +23,7 @@ const CoursesScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [deletingCourseId, setDeletingCourseId] = useState(null);
+  const [expandedCourseId, setExpandedCourseId] = useState(null);
 
   // Load courses on mount
   useEffect(() => {
@@ -150,6 +152,230 @@ const CoursesScreen = ({ navigation }) => {
     return `${startTime} - ${endTime}`;
   };
 
+  const toggleActivityBadges = (courseId) => {
+    setExpandedCourseId(expandedCourseId === courseId ? null : courseId);
+  };
+
+  // Animated Activity Badges Component
+  const AnimatedActivityBadges = ({ isExpanded, navigation, course }) => {
+    // Individual animated values for each badge
+    const quizFade = useRef(new Animated.Value(0)).current;
+    const quizTranslateY = useRef(new Animated.Value(-10)).current;
+    const quizScale = useRef(new Animated.Value(0.9)).current;
+
+    const tutorialFade = useRef(new Animated.Value(0)).current;
+    const tutorialTranslateY = useRef(new Animated.Value(-10)).current;
+    const tutorialScale = useRef(new Animated.Value(0.9)).current;
+
+    const assignmentFade = useRef(new Animated.Value(0)).current;
+    const assignmentTranslateY = useRef(new Animated.Value(-10)).current;
+    const assignmentScale = useRef(new Animated.Value(0.9)).current;
+
+    useEffect(() => {
+      if (isExpanded) {
+        // Reset all animations
+        quizFade.setValue(0);
+        quizTranslateY.setValue(-10);
+        quizScale.setValue(0.9);
+        tutorialFade.setValue(0);
+        tutorialTranslateY.setValue(-10);
+        tutorialScale.setValue(0.9);
+        assignmentFade.setValue(0);
+        assignmentTranslateY.setValue(-10);
+        assignmentScale.setValue(0.9);
+
+        // Animate Quiz first (no delay)
+        Animated.parallel([
+          Animated.timing(quizFade, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+          Animated.timing(quizTranslateY, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+          Animated.spring(quizScale, {
+            toValue: 1,
+            tension: 50,
+            friction: 7,
+            useNativeDriver: true,
+          }),
+        ]).start();
+
+        // Animate Tutorial second (100ms delay)
+        setTimeout(() => {
+          Animated.parallel([
+            Animated.timing(tutorialFade, {
+              toValue: 1,
+              duration: 300,
+              useNativeDriver: true,
+            }),
+            Animated.timing(tutorialTranslateY, {
+              toValue: 0,
+              duration: 300,
+              useNativeDriver: true,
+            }),
+            Animated.spring(tutorialScale, {
+              toValue: 1,
+              tension: 50,
+              friction: 7,
+              useNativeDriver: true,
+            }),
+          ]).start();
+        }, 100);
+
+        // Animate Assignment third (200ms delay)
+        setTimeout(() => {
+          Animated.parallel([
+            Animated.timing(assignmentFade, {
+              toValue: 1,
+              duration: 300,
+              useNativeDriver: true,
+            }),
+            Animated.timing(assignmentTranslateY, {
+              toValue: 0,
+              duration: 300,
+              useNativeDriver: true,
+            }),
+            Animated.spring(assignmentScale, {
+              toValue: 1,
+              tension: 50,
+              friction: 7,
+              useNativeDriver: true,
+            }),
+          ]).start();
+        }, 200);
+      } else {
+        // Collapse all at once (reverse order for smooth exit)
+        Animated.parallel([
+          Animated.timing(assignmentFade, {
+            toValue: 0,
+            duration: 150,
+            useNativeDriver: true,
+          }),
+          Animated.timing(assignmentTranslateY, {
+            toValue: -10,
+            duration: 150,
+            useNativeDriver: true,
+          }),
+          Animated.timing(assignmentScale, {
+            toValue: 0.9,
+            duration: 150,
+            useNativeDriver: true,
+          }),
+          Animated.timing(tutorialFade, {
+            toValue: 0,
+            duration: 150,
+            useNativeDriver: true,
+          }),
+          Animated.timing(tutorialTranslateY, {
+            toValue: -10,
+            duration: 150,
+            useNativeDriver: true,
+          }),
+          Animated.timing(tutorialScale, {
+            toValue: 0.9,
+            duration: 150,
+            useNativeDriver: true,
+          }),
+          Animated.timing(quizFade, {
+            toValue: 0,
+            duration: 150,
+            useNativeDriver: true,
+          }),
+          Animated.timing(quizTranslateY, {
+            toValue: -10,
+            duration: 150,
+            useNativeDriver: true,
+          }),
+          Animated.timing(quizScale, {
+            toValue: 0.9,
+            duration: 150,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }
+    }, [isExpanded]);
+
+    return (
+      <View style={styles.activityBadgesContainer}>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => {
+            if (isExpanded) {
+              navigation.navigate('CreateQuiz', { course });
+            }
+          }}
+          disabled={!isExpanded}
+        >
+          <Animated.View
+            style={[
+              styles.activityBadge,
+              styles.quizBadge,
+              {
+                opacity: quizFade,
+                transform: [
+                  { translateY: quizTranslateY },
+                  { scale: quizScale },
+                ],
+              },
+            ]}
+            pointerEvents={isExpanded ? 'auto' : 'none'}
+          >
+            <Ionicons name="checkmark-circle-outline" size={14} color="#3b82f6" />
+            <Text style={[styles.activityBadgeText, { color: '#3b82f6' }]}>Quiz</Text>
+          </Animated.View>
+        </TouchableOpacity>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => {
+            if (isExpanded) {
+              navigation.navigate('CreateTutorial', { course });
+            }
+          }}
+          disabled={!isExpanded}
+        >
+          <Animated.View
+            style={[
+              styles.activityBadge,
+              styles.tutorialBadge,
+              {
+                opacity: tutorialFade,
+                transform: [
+                  { translateY: tutorialTranslateY },
+                  { scale: tutorialScale },
+                ],
+              },
+            ]}
+            pointerEvents={isExpanded ? 'auto' : 'none'}
+          >
+            <Ionicons name="school-outline" size={14} color="#10b981" />
+            <Text style={[styles.activityBadgeText, { color: '#10b981' }]}>Tutorial</Text>
+          </Animated.View>
+        </TouchableOpacity>
+        <Animated.View
+          style={[
+            styles.activityBadge,
+            styles.assignmentBadge,
+            {
+              opacity: assignmentFade,
+              transform: [
+                { translateY: assignmentTranslateY },
+                { scale: assignmentScale },
+              ],
+            },
+          ]}
+          pointerEvents={isExpanded ? 'auto' : 'none'}
+        >
+          <Ionicons name="document-text-outline" size={14} color="#f97316" />
+          <Text style={[styles.activityBadgeText, { color: '#f97316' }]}>Assignment</Text>
+        </Animated.View>
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.screen}>
       <StatusBar style="light" />
@@ -206,80 +432,96 @@ const CoursesScreen = ({ navigation }) => {
               const courseId = course.id || course._id;
               const isDeleting = deletingCourseId === courseId;
 
+              const creditHours = course.credit_hours || course.creditHours || '0';
+              const studentRange = course.index_from && course.index_to 
+                ? `${course.index_from} - ${course.index_to}`
+                : course.index_from || 'N/A';
+              const instructorName = course.course_rep_name || course.courseRepName || 'N/A';
+              const isExpanded = expandedCourseId === courseId;
+
               return (
-                <View
-                  key={courseId}
-                  style={styles.courseCard}
-                >
-                  <View style={styles.courseContent}>
-                    <View style={styles.courseHeader}>
-                      <View style={styles.courseIconContainer}>
-                        <Ionicons name="book" size={24} color="#2563eb" />
-                      </View>
-                      <View style={styles.courseInfo}>
-                        <Text style={styles.courseName}>{course.course_name || course.courseName}</Text>
-                        <Text style={styles.courseCode}>{course.course_code || course.courseCode}</Text>
-                      </View>
-                      <View style={styles.codeBadge}>
-                        <Text style={styles.codeBadgeText}>{course.unique_code || course.uniqueCode}</Text>
-                      </View>
-                    </View>
-                    <View style={styles.courseDetails}>
-                      <View style={styles.detailRow}>
-                        <Ionicons name="time-outline" size={16} color="#6b7280" />
-                        <Text style={styles.detailText}>
-                          {formatTime(course.start_time || course.startTime, course.end_time || course.endTime)}
-                        </Text>
-                      </View>
-                      <View style={styles.detailRow}>
-                        <Ionicons name="calendar-outline" size={16} color="#6b7280" />
-                        <Text style={styles.detailText}>{formatDays(course.days)}</Text>
-                      </View>
-                      {course.venue && (
-                        <View style={styles.detailRow}>
-                          <Ionicons name="location-outline" size={16} color="#6b7280" />
-                          <Text style={styles.detailText}>{course.venue}</Text>
+                <View key={courseId} style={styles.courseCardWrapper}>
+                  <View style={styles.courseCard}>
+                    <View style={styles.courseCardLeftBorder} />
+                    <View style={styles.courseContent}>
+                      <View style={styles.courseHeader}>
+                        <View style={styles.courseTitleSection}>
+                          <Text style={styles.courseCodeText}>{course.course_code || course.courseCode}</Text>
+                          <Text style={styles.courseNameText}>{course.course_name || course.courseName}</Text>
                         </View>
-                      )}
-                    </View>
-                    <View style={styles.courseFooter}>
-                      <View style={styles.studentCount}>
-                        <Ionicons name="people-outline" size={16} color="#6b7280" />
-                        <Text style={styles.studentCountText}>
-                          {course.student_count || 0} {course.student_count === 1 ? 'student' : 'students'}
-                        </Text>
+                        <View style={styles.topRightSection}>
+                          <View style={styles.creditsBadge}>
+                            <Text style={styles.creditsBadgeText}>{creditHours} Credits</Text>
+                          </View>
+                        </View>
                       </View>
-                      <View style={styles.actionButtons}>
-                        <TouchableOpacity
-                          style={styles.editButton}
-                          onPress={() => navigation.navigate('AddCourse', { course: courseForEdit })}
-                        >
-                          <Ionicons name="create-outline" size={16} color="#2563eb" />
-                          <Text style={styles.editButtonText}>Edit</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.viewButton}
-                          onPress={() => navigation.navigate('CourseStudents', { course })}
-                        >
-                          <Text style={styles.viewButtonText}>View</Text>
-                        </TouchableOpacity>
+                      <AnimatedActivityBadges 
+                        isExpanded={isExpanded} 
+                        navigation={navigation}
+                        course={course}
+                      />
+                      <View style={styles.courseDetails}>
+                        <View style={styles.detailRow}>
+                          <Ionicons name="time-outline" size={16} color="#6b7280" />
+                          <Text style={styles.detailText}>
+                            {formatTime(course.start_time || course.startTime, course.end_time || course.endTime)}
+                          </Text>
+                        </View>
+                        {course.venue && (
+                          <View style={styles.detailRow}>
+                            <Ionicons name="location-outline" size={16} color="#6b7280" />
+                            <Text style={styles.detailText}>{course.venue}</Text>
+                          </View>
+                        )}
+                        <View style={styles.detailRow}>
+                          <Ionicons name="calendar-outline" size={16} color="#6b7280" />
+                          <Text style={styles.detailText}>{formatDays(course.days)}</Text>
+                        </View>
+                        <View style={styles.detailRow}>
+                          <Ionicons name="book-outline" size={16} color="#6b7280" />
+                          <Text style={styles.detailText}>By {instructorName}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.courseFooter}>
+                        <View style={styles.studentRangeBadge}>
+                          <Text style={styles.studentRangeText}>{studentRange}</Text>
+                        </View>
+                        <View style={styles.codeBadgeContainer}>
+                          <Text style={styles.codeLabel}>CODE</Text>
+                          <Text style={styles.codeValue}>{course.unique_code || course.uniqueCode}</Text>
+                        </View>
                       </View>
                     </View>
                   </View>
-                  <TouchableOpacity
-                    style={[styles.deleteButton, isDeleting && styles.deleteButtonDisabled]}
-                    onPress={() => handleDeleteCourse(course)}
-                    disabled={isDeleting}
-                  >
-                    {isDeleting ? (
-                      <ActivityIndicator size="small" color="#ffffff" />
-                    ) : (
-                      <>
-                        <Ionicons name="trash-outline" size={18} color="#ffffff" />
-                        <Text style={styles.deleteButtonText}>Delete</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
+                  <View style={styles.actionButtonsContainer}>
+                    <TouchableOpacity
+                      style={styles.actionButtonAdd}
+                      onPress={() => toggleActivityBadges(courseId)}
+                    >
+                      <Ionicons 
+                        name={isExpanded ? "remove" : "add"} 
+                        size={20} 
+                        color="#ffffff" 
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.actionButtonEdit}
+                      onPress={() => navigation.navigate('AddCourse', { course: courseForEdit })}
+                    >
+                      <Ionicons name="create-outline" size={18} color="#2563eb" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.actionButtonDelete, isDeleting && styles.deleteButtonDisabled]}
+                      onPress={() => handleDeleteCourse(course)}
+                      disabled={isDeleting}
+                    >
+                      {isDeleting ? (
+                        <ActivityIndicator size="small" color="#ef4444" />
+                      ) : (
+                        <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                      )}
+                    </TouchableOpacity>
+                  </View>
                 </View>
               );
             })}
@@ -407,63 +649,113 @@ const styles = StyleSheet.create({
   coursesList: {
     gap: 16,
   },
+  courseCardWrapper: {
+    flexDirection: 'row',
+    marginBottom: 16,
+    alignItems: 'center',
+  },
   courseCard: {
+    flex: 1,
     backgroundColor: '#ffffff',
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderWidth: 0,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.02,
+    shadowRadius: 2,
+    elevation: 1,
     overflow: 'hidden',
+    position: 'relative',
+  },
+  courseCardLeftBorder: {
+    width: 4,
+    backgroundColor: '#2563eb',
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
   },
   courseContent: {
+    flex: 1,
     padding: 16,
+    paddingLeft: 20,
+    position: 'relative',
   },
   courseHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
     marginBottom: 12,
   },
-  codeBadge: {
-    backgroundColor: '#f3f4f6',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  codeBadgeText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#2563eb',
-    letterSpacing: 1,
-  },
-  courseIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: '#eff6ff',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  courseInfo: {
+  courseTitleSection: {
     flex: 1,
   },
-  courseName: {
-    fontSize: 16,
+  courseCodeText: {
+    fontSize: 18,
     fontWeight: '700',
     color: '#111827',
-    marginBottom: 4,
+    marginBottom: 2,
   },
-  courseCode: {
-    fontSize: 12,
+  courseNameText: {
+    fontSize: 14,
+    fontWeight: '400',
+    color: '#111827',
+  },
+  topRightSection: {
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  creditsBadge: {
+    backgroundColor: '#f3f4f6',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  creditsBadgeText: {
+    fontSize: 11,
+    fontWeight: '500',
     color: '#6b7280',
+  },
+  activityBadgesContainer: {
+    position: 'absolute',
+    right: 16,
+    top: 50,
+    flexDirection: 'column',
+    gap: 6,
+    zIndex: 1,
+    alignItems: 'flex-end',
+  },
+  activityBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  activityBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  quizBadge: {
+    backgroundColor: '#dbeafe',
+    borderColor: '#3b82f6',
+    width: 65,
+  },
+  tutorialBadge: {
+    backgroundColor: '#d1fae5',
+    borderColor: '#10b981',
+    width: 85,
+  },
+  assignmentBadge: {
+    backgroundColor: '#fed7aa',
+    borderColor: '#f97316',
+    width: 105,
   },
   courseDetails: {
     marginBottom: 12,
-    gap: 8,
+    gap: 6,
   },
   detailRow: {
     flexDirection: 'row',
@@ -478,69 +770,84 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
+    marginTop: 8,
   },
-  studentCount: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+  studentRangeBadge: {
+    backgroundColor: '#dbeafe',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
   },
-  studentCountText: {
-    fontSize: 12,
-    color: '#6b7280',
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    gap: 8,
-    alignItems: 'center',
-  },
-  editButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#eff6ff',
-    borderWidth: 1,
-    borderColor: '#2563eb',
-  },
-  editButtonText: {
-    fontSize: 12,
+  studentRangeText: {
+    fontSize: 11,
     fontWeight: '600',
     color: '#2563eb',
   },
-  viewButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#eff6ff',
+  codeBadgeContainer: {
+    alignItems: 'flex-end',
   },
-  viewButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
+  codeLabel: {
+    fontSize: 9,
+    fontWeight: '400',
+    color: '#9ca3af',
+    marginBottom: 2,
+  },
+  codeValue: {
+    fontSize: 14,
+    fontWeight: '700',
     color: '#2563eb',
+    letterSpacing: 0.5,
   },
-  deleteButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  actionButtonsContainer: {
+    flexDirection: 'column',
     justifyContent: 'center',
-    gap: 6,
-    backgroundColor: '#ef4444',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
+    alignItems: 'center',
+    marginLeft: 12,
+    gap: 8,
+  },
+  actionButtonAdd: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: '#10b981',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  actionButtonEdit: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  actionButtonDelete: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
   },
   deleteButtonDisabled: {
     opacity: 0.6,
-  },
-  deleteButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#ffffff',
   },
   emptyState: {
     alignItems: 'center',

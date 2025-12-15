@@ -34,7 +34,7 @@
       ]
     ],
     "extra": {
-      "apiUrl": "http://10.48.213.72:3000/api",
+      "apiUrl": "http://172.20.10.8:3000/api",
       "eas": {
         "projectId": "ea913b88-c870-4e26-90b7-87661d3890f0"
       }

@@ -136,7 +136,6 @@ curl -X POST http://localhost:3000/api/notifications/register-token \
 **Option A: Wait for Scheduled Job (5 minutes)**
 - The job runs every 5 minutes
 - Wait for the next run cycle
-- Check console logs for: "Processing class reminders..."
 
 **Option B: Manually Trigger Job (Recommended for Testing)**
 

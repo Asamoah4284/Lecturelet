@@ -256,15 +256,15 @@ const StudentAddCourseScreen = ({ navigation }) => {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Course Details</Text>
             <View style={styles.courseCard}>
-              <View style={[styles.courseContent, !isEnrolled && styles.courseContentBlurred]}>
-                {/* Blur overlay when not enrolled - only covers course details */}
-                {!isEnrolled && (
+              <View style={[styles.courseContent, !hasPaid && styles.courseContentBlurred]}>
+                {/* Blur overlay when not paid - only covers course details */}
+                {!hasPaid && (
                   <View style={styles.blurOverlay}>
                     <View style={styles.blurMessageContainer}>
                       <Ionicons name="lock-closed" size={32} color="#6b7280" />
-                      <Text style={styles.blurMessageTitle}>Enroll to View Details</Text>
+                      <Text style={styles.blurMessageTitle}>Payment Required</Text>
                       <Text style={styles.blurMessageText}>
-                        Enroll in this course to see full course information
+                        Make a payment to view full course details and enroll
                       </Text>
                     </View>
                   </View>

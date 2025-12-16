@@ -264,7 +264,10 @@ const NotificationsScreen = ({ navigation }) => {
                         {formatDate(notification.created_at)}
                       </Text>
                     </View>
-                    <Text style={styles.notificationMessage} numberOfLines={3}>
+                    <Text 
+                      style={styles.notificationMessage} 
+                      numberOfLines={notification.type === 'course_update' ? undefined : 3}
+                    >
                       {notification.message}
                     </Text>
                     {notification.course_name && (

@@ -1,11 +1,13 @@
 {
   "expo": {
-    "name": "Lecturer Let",
+    "name": "LectureLet",
     "slug": "LectureLet",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "icon": "./assets/logo.png",
     "splash": {
+      "image": "./assets/logo.png",
       "resizeMode": "contain",
       "backgroundColor": "#6366f1"
     },
@@ -18,11 +20,14 @@
     },
     "android": {
       "adaptiveIcon": {
+        "foregroundImage": "./assets/logo.png",
         "backgroundColor": "#6366f1"
       },
       "package": "com.LectureLet.app"
     },
-    "web": {},
+    "web": {
+      "favicon": "./assets/logo.png"
+    },
     "plugins": [
       [
         "expo-notifications",

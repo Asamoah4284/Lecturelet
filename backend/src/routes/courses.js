@@ -478,24 +478,53 @@ router.put(
         .populate('userId', 'pushToken notificationsEnabled fullName');
 
       // Build notification messages
-      // Detailed message for in-app notifications
-      let detailedMessage = `${course.courseName} has been updated`;
+      // Detailed message for in-app notifications - show all changes clearly
+      let detailedMessage = '';
       if (changes.length > 0) {
-        detailedMessage += `:\n${changes.join('\n')}`;
+        // Format changes clearly with bullet points
+        const changeList = changes.map(change => `• ${change}`).join('\n');
+        detailedMessage = `${course.courseName} has been updated:\n\n${changeList}`;
+      } else {
+        detailedMessage = `${course.courseName} has been updated`;
       }
       
-      // Concise message for push notifications (shorter, no newlines)
+      // Concise message for push notifications (shorter, single line)
       let pushMessage = `${course.courseName} has been updated`;
       if (changes.length > 0) {
         // Create a shorter summary for push notifications
         const changeSummary = changes.map(change => {
-          // Extract key info (e.g., "Venue: Room A1 → Room B2" becomes "Venue changed")
-          if (change.includes('Venue:')) return 'Venue changed';
-          if (change.includes('Time:')) return 'Time changed';
-          if (change.includes('Days:')) return 'Days changed';
-          if (change.includes('Course name:')) return 'Course name changed';
-          if (change.includes('Credit hours:')) return 'Credit hours changed';
-          return 'Updated';
+          // Extract key info for push notifications
+          if (change.includes('Venue:')) {
+            const parts = change.split('→');
+            const oldVenue = parts[0].split(':')[1]?.trim() || '';
+            const newVenue = parts[1]?.trim() || '';
+            return `Venue: ${oldVenue} → ${newVenue}`;
+          }
+          if (change.includes('Time:')) {
+            const parts = change.split('→');
+            const oldTime = parts[0].split(':')[1]?.trim() || '';
+            const newTime = parts[1]?.trim() || '';
+            return `Time: ${oldTime} → ${newTime}`;
+          }
+          if (change.includes('Days:')) {
+            const parts = change.split('→');
+            const oldDays = parts[0].split(':')[1]?.trim() || '';
+            const newDays = parts[1]?.trim() || '';
+            return `Days: ${oldDays} → ${newDays}`;
+          }
+          if (change.includes('Course name:')) {
+            const parts = change.split('→');
+            const oldName = parts[0].split(':')[1]?.trim() || '';
+            const newName = parts[1]?.trim() || '';
+            return `Name: ${oldName} → ${newName}`;
+          }
+          if (change.includes('Credit hours:')) {
+            const parts = change.split('→');
+            const oldHours = parts[0].split(':')[1]?.trim() || '';
+            const newHours = parts[1]?.trim() || '';
+            return `Credit hours: ${oldHours} → ${newHours}`;
+          }
+          return change;
         });
         pushMessage += `. ${changeSummary.join(', ')}`;
       }
@@ -506,6 +535,11 @@ router.put(
 
       for (const enrollment of enrollments) {
         const student = enrollment.userId;
+        
+        // Skip if user no longer exists (e.g., deleted account)
+        if (!student || !student._id) {
+          continue;
+        }
         
         // Create in-app notification for all students (detailed message)
         notifications.push({

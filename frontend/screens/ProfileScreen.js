@@ -99,7 +99,7 @@ const ProfileScreen = () => {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>About</Text>
           <Text style={styles.aboutText}>
-            Lecturer Let v1.0.0{'\n'}
+            LectureLet v1.0.0{'\n'}
             Never miss a lecture again!
           </Text>
         </View>

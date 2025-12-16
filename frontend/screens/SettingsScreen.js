@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,15 +10,19 @@ import {
   Alert,
   TextInput,
   Platform,
+  Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { WebView } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import Button from '../components/Button';
-import { getApiUrl } from '../config/api';
+import { getApiUrl, PAYSTACK_PUBLIC_KEY } from '../config/api';
 import { initializeNotifications, removePushToken } from '../services/notificationService';
 
 const SettingsContent = ({ navigation }) => {
+  const webViewRef = useRef(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [reminderMinutes, setReminderMinutes] = useState('15');
   const [userName, setUserName] = useState('');
@@ -26,6 +30,13 @@ const SettingsContent = ({ navigation }) => {
   const [userPhoneNumber, setUserPhoneNumber] = useState('');
   const [userRole, setUserRole] = useState('');
   const [saving, setSaving] = useState(false);
+  
+  // Payment states
+  const [showPayment, setShowPayment] = useState(false);
+  const [paymentData, setPaymentData] = useState(null);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [paymentEmail, setPaymentEmail] = useState('');
+  const FIXED_PAYMENT_AMOUNT = 20; // Fixed payment amount in GHS
 
   // Load user data on mount
   useEffect(() => {
@@ -198,6 +209,192 @@ const SettingsContent = ({ navigation }) => {
     );
   };
 
+  // Payment initialization handler
+  const handleInitializePayment = async () => {
+    // Check if Paystack is configured
+    if (!PAYSTACK_PUBLIC_KEY) {
+      Alert.alert(
+        'Configuration Error', 
+        'Paystack is not configured. Please ensure PAYSTACK_PUBLIC_KEY is set in app.json and restart the app.\n\nIf you just added the key, please:\n1. Stop the Expo server\n2. Run: npx expo start --clear\n3. Reload the app'
+      );
+      console.error('PAYSTACK_PUBLIC_KEY is missing. Current value:', PAYSTACK_PUBLIC_KEY);
+      return;
+    }
+
+    // Use payment email if provided, otherwise fall back to userEmail from profile
+    const emailToUse = paymentEmail.trim() || userEmail;
+    
+    // Validate email
+    if (!emailToUse) {
+      Alert.alert('Email Required', 'Please enter your email address to proceed with payment.');
+      return;
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(emailToUse)) {
+      Alert.alert('Invalid Email', 'Please enter a valid email address.');
+      return;
+    }
+
+    // Get authentication token
+    const token = await AsyncStorage.getItem('@auth_token');
+    if (!token) {
+      Alert.alert('Authentication Required', 'Please log in to proceed.');
+      return;
+    }
+
+    try {
+      setIsProcessingPayment(true);
+      
+      // Initialize payment with backend
+      const response = await fetch(getApiUrl('payments/initialize-payment'), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amount: FIXED_PAYMENT_AMOUNT,
+          email: emailToUse,
+          currency: 'GHS',
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        // Store payment data and show WebView with authorization_url
+        setPaymentData({
+          reference: data.reference,
+          authorizationUrl: data.authorization_url || data.data?.authorization_url,
+          amount: FIXED_PAYMENT_AMOUNT,
+          email: emailToUse,
+        });
+        setShowPayment(true);
+      } else {
+        Alert.alert('Payment Initialization Failed', data.error || data.message || 'Failed to initialize payment.');
+        setIsProcessingPayment(false);
+      }
+    } catch (error) {
+      console.error('Payment initialization error:', error);
+      Alert.alert('Error', 'Network error. Please check your connection.');
+      setIsProcessingPayment(false);
+    }
+  };
+
+  // Handle WebView navigation to detect payment completion
+  const handleWebViewNavigationStateChange = async (navState) => {
+    const { url } = navState;
+    console.log('WebView navigation:', url);
+    
+    // Paystack redirects after payment completion
+    // Check for various success indicators in the URL
+    if (url) {
+      // Success indicators: callback, success, verify, or specific Paystack success patterns
+      const isSuccess = url.includes('callback') || 
+                       url.includes('success') || 
+                       url.includes('verify') ||
+                       url.includes('transaction/verify') ||
+                       url.match(/\/success/i);
+      
+      // Cancel indicators
+      const isCancel = url.includes('cancel') || 
+                      url.includes('close') ||
+                      url.match(/\/cancel/i);
+      
+      if (isSuccess && !isCancel) {
+        // Small delay to ensure payment is processed
+        setTimeout(async () => {
+          setShowPayment(false);
+          setIsProcessingPayment(true);
+          await verifyPayment();
+        }, 1500);
+      } else if (isCancel) {
+        handlePaymentCancel();
+      }
+    }
+  };
+
+  // Handle should start load with request (more reliable for navigation detection)
+  const handleShouldStartLoadWithRequest = (request) => {
+    const { url } = request;
+    console.log('WebView should start load:', url);
+    
+    // Allow navigation to proceed
+    return true;
+  };
+
+  // Verify payment with backend
+  const verifyPayment = async () => {
+    try {
+      const token = await AsyncStorage.getItem('@auth_token');
+      
+      if (!paymentData?.reference) {
+        throw new Error('No payment reference available');
+      }
+
+      // Verify payment with backend
+      const verifyResponse = await fetch(getApiUrl('payments/verify-payment'), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          reference: paymentData.reference,
+          amount: paymentData.amount,
+        }),
+      });
+
+      const verifyData = await verifyResponse.json();
+
+      if (verifyResponse.ok && verifyData.success) {
+        // Update user data to reflect payment status
+        await loadUserData();
+        
+        Alert.alert(
+          'Payment Successful! 🎉',
+          `Your payment of GH₵${paymentData.amount} has been processed successfully!`,
+          [{ text: 'OK' }]
+        );
+      } else {
+        Alert.alert('Payment Verification Failed', verifyData.error || verifyData.message || 'Payment verification failed.');
+      }
+    } catch (error) {
+      console.error('Payment verification error:', error);
+      Alert.alert('Error', 'Payment verification failed. Please contact support.');
+    } finally {
+      setIsProcessingPayment(false);
+      setPaymentData(null);
+    }
+  };
+
+  // Payment cancel handler
+  const handlePaymentCancel = () => {
+    setShowPayment(false);
+    setIsProcessingPayment(false);
+    setPaymentData(null);
+    // Don't clear paymentEmail so user doesn't have to re-enter if they try again
+  };
+
+  // Handle WebView message from Paystack (if using postMessage)
+  const handleWebViewMessage = (event) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      
+      if (data.status === 'success') {
+        setShowPayment(false);
+        setIsProcessingPayment(true);
+        verifyPayment();
+      } else if (data.status === 'cancel') {
+        handlePaymentCancel();
+      }
+    } catch (error) {
+      // Not a JSON message, ignore
+    }
+  };
+
 
   return (
       <SafeAreaView style={styles.screen}>
@@ -278,6 +475,54 @@ const SettingsContent = ({ navigation }) => {
           )}
         </View>
 
+        {/* Payment Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Payment</Text>
+
+          <View style={styles.settingItem}>
+            <View style={styles.settingLeft}>
+              <Ionicons name="card-outline" size={20} color="#6b7280" />
+              <View style={styles.settingInfo}>
+                <Text style={styles.settingLabel}>Make Payment</Text>
+                <Text style={styles.settingDescription}>
+                  Pay GH₵{FIXED_PAYMENT_AMOUNT} for course enrollment and services
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.paymentEmailContainer}>
+            <Text style={styles.paymentEmailLabel}>Email Address</Text>
+            <TextInput
+              style={styles.paymentEmailInput}
+              value={paymentEmail}
+              onChangeText={setPaymentEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder={userEmail || "Enter your email address"}
+              placeholderTextColor="#9ca3af"
+            />
+            {userEmail && (
+              <Text style={styles.paymentEmailHint}>
+                Using profile email: {userEmail}
+              </Text>
+            )}
+          </View>
+
+          <TouchableOpacity
+            style={[styles.payButton, isProcessingPayment && styles.payButtonDisabled]}
+            onPress={handleInitializePayment}
+            disabled={isProcessingPayment}
+          >
+            {isProcessingPayment ? (
+              <ActivityIndicator size="small" color="#ffffff" />
+            ) : (
+              <Text style={styles.payButtonText}>Pay GH₵{FIXED_PAYMENT_AMOUNT}</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+
         {/* Support Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Support</Text>
@@ -315,6 +560,78 @@ const SettingsContent = ({ navigation }) => {
 
         <Text style={styles.versionText}>Version 1.0.0</Text>
       </ScrollView>
+
+      {/* Paystack Payment WebView Modal */}
+      {showPayment && paymentData?.authorizationUrl && (
+        <Modal 
+          visible={showPayment} 
+          animationType="slide"
+          onRequestClose={handlePaymentCancel}
+        >
+          <SafeAreaView style={styles.paymentContainer}>
+            <View style={styles.paymentHeader}>
+              <TouchableOpacity onPress={handlePaymentCancel} style={styles.paymentCloseButton}>
+                <Ionicons name="close" size={24} color="#111827" />
+              </TouchableOpacity>
+              <Text style={styles.paymentTitle}>Complete Payment</Text>
+              <View style={styles.paymentCloseButton} />
+            </View>
+            
+            <View style={styles.paymentInfo}>
+              <Text style={styles.paymentAmountLabel}>Amount</Text>
+              <Text style={styles.paymentAmount}>GH₵{paymentData.amount}</Text>
+              <Text style={styles.paymentEmail}>{paymentData.email || userEmail}</Text>
+            </View>
+
+            <WebView
+              ref={webViewRef}
+              source={{ uri: paymentData.authorizationUrl }}
+              style={styles.paystackContainer}
+              onNavigationStateChange={handleWebViewNavigationStateChange}
+              onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
+              onMessage={handleWebViewMessage}
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              startInLoadingState={true}
+              allowsBackForwardNavigationGestures={true}
+              renderLoading={() => (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#2563eb" />
+                  <Text style={styles.loadingText}>Loading payment page...</Text>
+                </View>
+              )}
+              onError={(syntheticEvent) => {
+                const { nativeEvent } = syntheticEvent;
+                console.error('WebView error:', nativeEvent);
+                Alert.alert(
+                  'Payment Error',
+                  'There was an error loading the payment page. Please try again.',
+                  [{ text: 'OK', onPress: handlePaymentCancel }]
+                );
+              }}
+              injectedJavaScript={`
+                (function() {
+                  // Monitor for Paystack payment completion
+                  window.addEventListener('message', function(event) {
+                    if (event.data && event.data.status) {
+                      window.ReactNativeWebView.postMessage(JSON.stringify(event.data));
+                    }
+                  });
+                  
+                  // Also check for URL changes that indicate completion
+                  var originalPushState = history.pushState;
+                  history.pushState = function() {
+                    originalPushState.apply(history, arguments);
+                    if (window.location.href.includes('success') || window.location.href.includes('callback')) {
+                      window.ReactNativeWebView.postMessage(JSON.stringify({status: 'success'}));
+                    }
+                  };
+                })();
+              `}
+            />
+          </SafeAreaView>
+        </Modal>
+      )}
 
       {/* Bottom Navigation */}
       <View style={styles.bottomNav}>
@@ -537,6 +854,115 @@ const styles = StyleSheet.create({
   navLabelActive: {
     color: '#2563eb',
     fontWeight: '600',
+  },
+  paymentContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  paymentHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    paddingTop: Platform.OS === 'android' ? 20 : 50,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  paymentCloseButton: {
+    width: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  paymentTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  paymentInfo: {
+    padding: 20,
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    backgroundColor: '#F9FAFB',
+  },
+  paymentAmountLabel: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginBottom: 4,
+  },
+  paymentAmount: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  paymentEmail: {
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  paystackContainer: {
+    flex: 1,
+  },
+  loadingContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  payButton: {
+    marginTop: 12,
+    marginHorizontal: 20,
+    marginBottom: 12,
+    backgroundColor: '#2563eb',
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  payButtonDisabled: {
+    opacity: 0.6,
+  },
+  payButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#ffffff',
+  },
+  paymentEmailContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    marginTop: 8,
+  },
+  paymentEmailLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6b7280',
+    marginBottom: 8,
+  },
+  paymentEmailInput: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: '#111827',
+    backgroundColor: '#ffffff',
+  },
+  paymentEmailHint: {
+    fontSize: 11,
+    color: '#6b7280',
+    marginTop: 6,
+    fontStyle: 'italic',
   },
 });
 

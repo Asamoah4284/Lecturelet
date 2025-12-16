@@ -6,6 +6,7 @@ const notificationRoutes = require('./notifications');
 const quizRoutes = require('./quizzes');
 const assignmentRoutes = require('./assignments');
 const tutorialRoutes = require('./tutorials');
+const paymentRoutes = require('./payments');
 
 const router = express.Router();
 
@@ -26,6 +27,7 @@ router.use('/notifications', notificationRoutes);
 router.use('/quizzes', quizRoutes);
 router.use('/assignments', assignmentRoutes);
 router.use('/tutorials', tutorialRoutes);
+router.use('/payments', paymentRoutes);
 
 module.exports = router;
 

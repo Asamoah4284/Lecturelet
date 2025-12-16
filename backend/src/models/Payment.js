@@ -18,7 +18,7 @@ const paymentSchema = new mongoose.Schema({
   },
   currency: {
     type: String,
-    default: 'NGN',
+    default: 'GHS',
   },
   reference: {
     type: String,
@@ -52,6 +52,7 @@ const paymentSchema = new mongoose.Schema({
 });
 
 module.exports = mongoose.model('Payment', paymentSchema);
+
 
 
 

@@ -49,6 +49,7 @@ app.get('/', (req, res) => {
       courses: '/api/courses',
       enrollments: '/api/enrollments',
       notifications: '/api/notifications',
+      payments: '/api/payments',
     },
   });
 });

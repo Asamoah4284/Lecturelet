@@ -8,6 +8,11 @@ const validate = require('../middleware/validate');
 
 const router = express.Router();
 
+// Fixed payment amount - SECURITY: This is the only source of truth for payment amount
+// Frontend cannot manipulate this value
+const FIXED_PAYMENT_AMOUNT = 20; // GHS 20
+const PAYMENT_CURRENCY = 'GHS';
+
 /**
  * @route   POST /api/payments/initialize-payment
  * @desc    Initialize Paystack payment
@@ -17,13 +22,12 @@ router.post(
   '/initialize-payment',
   authenticate,
   [
-    body('amount')
-      .isFloat({ min: 0.01 })
-      .withMessage('Amount must be a positive number'),
+    // Note: We don't validate amount from frontend - we use fixed backend amount for security
     body('email')
       .isEmail()
       .normalizeEmail()
       .withMessage('Valid email is required'),
+    // Currency is also fixed, but we accept it for compatibility (will be ignored)
     body('currency')
       .optional()
       .isIn(['GHS', 'NGN', 'USD'])
@@ -32,8 +36,14 @@ router.post(
   validate,
   async (req, res) => {
     try {
-      const { amount, email, currency = 'GHS' } = req.body;
+      const { email } = req.body;
       const userId = req.user.id;
+
+      // SECURITY: Use fixed amount from backend - ignore any amount sent from frontend
+      const amount = FIXED_PAYMENT_AMOUNT;
+      const currency = PAYMENT_CURRENCY;
+
+      console.log(`Initializing payment: Amount=${amount} ${currency} for user=${userId}, email=${email}`);
 
       // Validate Paystack secret key is configured
       if (!process.env.PAYSTACK_SECRET_KEY) {
@@ -76,31 +86,33 @@ router.post(
               throw new Error(response.message || 'Payment initialization failed');
             }
 
-            // Create payment record in database
+            // Create payment record in database with fixed backend amount
             const payment = await Payment.create({
               userId: userId,
               email: email,
-              amount: amount,
-              currency: currency,
+              amount: amount, // Fixed amount from backend
+              currency: currency, // Fixed currency from backend
               reference: reference,
               accessCode: response.data.access_code,
               authorizationUrl: response.data.authorization_url,
               status: 'pending',
               metadata: {
                 userId: userId,
-                amount: amount,
+                amount: amount, // Fixed amount stored in metadata
                 currency: currency,
+                fixedAmount: true, // Flag to indicate this was a fixed amount payment
               },
             });
 
             // Return Paystack response with reference
+            // Note: We return the fixed amount so frontend can display it
             res.json({
               success: true,
               reference: reference,
               access_code: response.data.access_code,
               authorization_url: response.data.authorization_url,
-              amount: amount,
-              currency: currency,
+              amount: amount, // Fixed amount from backend
+              currency: currency, // Fixed currency from backend
             });
           } catch (error) {
             console.error('Error processing Paystack response:', error);
@@ -200,6 +212,21 @@ const processSuccessfulPayment = async (reference, userId = null) => {
             if (response.status && response.data && response.data.status === 'success') {
               // Payment successful
               console.log(`Payment ${reference} verified as successful by Paystack`);
+              
+              // SECURITY: Verify the amount paid matches our expected fixed amount
+              const paidAmount = response.data.amount / 100; // Convert from pesewas to GHS
+              const expectedAmount = payment.amount;
+              
+              if (Math.abs(paidAmount - expectedAmount) > 0.01) {
+                console.error(`Amount mismatch for payment ${reference}: Expected ${expectedAmount}, Paid ${paidAmount}`);
+                resolve({
+                  success: false,
+                  error: 'Payment amount mismatch',
+                  details: `Expected amount ${expectedAmount} ${payment.currency}, but received ${paidAmount} ${payment.currency}`,
+                });
+                return;
+              }
+              
               payment.status = 'success';
               payment.paidAt = new Date();
               payment.gatewayResponse = JSON.stringify(response.data);
@@ -312,15 +339,12 @@ router.post(
       .trim()
       .notEmpty()
       .withMessage('Payment reference is required'),
-    body('amount')
-      .optional()
-      .isFloat({ min: 0.01 })
-      .withMessage('Amount must be a positive number'),
+    // Note: Amount is optional and ignored - we verify against the amount stored in the payment record
   ],
   validate,
   async (req, res) => {
     try {
-      const { reference, amount } = req.body;
+      const { reference } = req.body; // Ignore amount from frontend for security
       const userId = req.user.id;
 
       // Validate Paystack secret key is configured

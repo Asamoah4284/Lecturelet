@@ -270,10 +270,11 @@ const SettingsContent = ({ navigation }) => {
 
       if (response.ok && data.success) {
         // Store payment data and show WebView with authorization_url
+        // SECURITY: Use amount from backend response, not the one we sent
         setPaymentData({
           reference: data.reference,
           authorizationUrl: data.authorization_url || data.data?.authorization_url,
-          amount: FIXED_PAYMENT_AMOUNT,
+          amount: data.amount || FIXED_PAYMENT_AMOUNT, // Use backend amount for security
           email: emailToUse,
         });
         setShowPayment(true);
@@ -362,10 +363,10 @@ const SettingsContent = ({ navigation }) => {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-              reference: paymentData.reference,
-              amount: paymentData.amount,
-            }),
+        body: JSON.stringify({
+          reference: paymentData.reference,
+          // Note: Amount is not sent - backend verifies against stored payment record
+        }),
           });
 
           verifyData = await verifyResponse.json();

@@ -256,48 +256,62 @@ const StudentAddCourseScreen = ({ navigation }) => {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Course Details</Text>
             <View style={styles.courseCard}>
-              <View style={styles.courseHeader}>
-                <View style={styles.courseIconContainer}>
-                  <Ionicons name="book" size={24} color="#2563eb" />
-                </View>
-                <View style={styles.courseInfo}>
-                  <Text style={styles.courseName}>{course.course_name}</Text>
-                  <Text style={styles.courseCode}>{course.course_code}</Text>
-                </View>
-                <View style={styles.codeBadge}>
-                  <Text style={styles.codeBadgeText}>{course.unique_code}</Text>
-                </View>
-              </View>
-              <View style={styles.courseDetails}>
-                <View style={styles.detailRow}>
-                  <Ionicons name="time-outline" size={16} color="#6b7280" />
-                  <Text style={styles.detailText}>
-                    {formatTime(course.start_time, course.end_time)}
-                  </Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Ionicons name="calendar-outline" size={16} color="#6b7280" />
-                  <Text style={styles.detailText}>{formatDays(course.days)}</Text>
-                </View>
-                {course.venue && (
-                  <View style={styles.detailRow}>
-                    <Ionicons name="location-outline" size={16} color="#6b7280" />
-                    <Text style={styles.detailText}>{course.venue}</Text>
+              <View style={[styles.courseContent, !isEnrolled && styles.courseContentBlurred]}>
+                {/* Blur overlay when not enrolled - only covers course details */}
+                {!isEnrolled && (
+                  <View style={styles.blurOverlay}>
+                    <View style={styles.blurMessageContainer}>
+                      <Ionicons name="lock-closed" size={32} color="#6b7280" />
+                      <Text style={styles.blurMessageTitle}>Enroll to View Details</Text>
+                      <Text style={styles.blurMessageText}>
+                        Enroll in this course to see full course information
+                      </Text>
+                    </View>
                   </View>
                 )}
-                {course.creator_name && (
-                  <View style={styles.detailRow}>
-                    <Ionicons name="person-outline" size={16} color="#6b7280" />
-                    <Text style={styles.detailText}>Rep: {course.creator_name}</Text>
+                <View style={styles.courseHeader}>
+                  <View style={styles.courseIconContainer}>
+                    <Ionicons name="book" size={24} color="#2563eb" />
                   </View>
-                )}
-              </View>
-              <View style={styles.courseFooter}>
-                <View style={styles.studentCount}>
-                  <Ionicons name="people-outline" size={16} color="#6b7280" />
-                  <Text style={styles.studentCountText}>
-                    {course.student_count || 0} {course.student_count === 1 ? 'student' : 'students'}
-                  </Text>
+                  <View style={styles.courseInfo}>
+                    <Text style={styles.courseName}>{course.course_name}</Text>
+                    <Text style={styles.courseCode}>{course.course_code}</Text>
+                  </View>
+                  <View style={styles.codeBadge}>
+                    <Text style={styles.codeBadgeText}>{course.unique_code}</Text>
+                  </View>
+                </View>
+                <View style={styles.courseDetails}>
+                  <View style={styles.detailRow}>
+                    <Ionicons name="time-outline" size={16} color="#6b7280" />
+                    <Text style={styles.detailText}>
+                      {formatTime(course.start_time, course.end_time)}
+                    </Text>
+                  </View>
+                  <View style={styles.detailRow}>
+                    <Ionicons name="calendar-outline" size={16} color="#6b7280" />
+                    <Text style={styles.detailText}>{formatDays(course.days)}</Text>
+                  </View>
+                  {course.venue && (
+                    <View style={styles.detailRow}>
+                      <Ionicons name="location-outline" size={16} color="#6b7280" />
+                      <Text style={styles.detailText}>{course.venue}</Text>
+                    </View>
+                  )}
+                  {course.creator_name && (
+                    <View style={styles.detailRow}>
+                      <Ionicons name="person-outline" size={16} color="#6b7280" />
+                      <Text style={styles.detailText}>Rep: {course.creator_name}</Text>
+                    </View>
+                  )}
+                </View>
+                <View style={styles.courseFooter}>
+                  <View style={styles.studentCount}>
+                    <Ionicons name="people-outline" size={16} color="#6b7280" />
+                    <Text style={styles.studentCountText}>
+                      {course.student_count || 0} {course.student_count === 1 ? 'student' : 'students'}
+                    </Text>
+                  </View>
                 </View>
               </View>
               {!hasPaid && (
@@ -579,6 +593,44 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#78350f',
     lineHeight: 16,
+  },
+  courseContent: {
+    position: 'relative',
+    minHeight: 200,
+  },
+  courseContentBlurred: {
+    opacity: 0.25,
+  },
+  blurOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 12,
+    zIndex: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  blurMessageContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  blurMessageTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#374151',
+    marginTop: 12,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  blurMessageText: {
+    fontSize: 13,
+    color: '#6b7280',
+    textAlign: 'center',
+    lineHeight: 18,
   },
 });
 

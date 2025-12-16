@@ -1,5 +1,6 @@
 const express = require('express');
 const https = require('https');
+const crypto = require('crypto');
 const { body } = require('express-validator');
 const { Payment, User } = require('../models');
 const { authenticate } = require('../middleware/auth');
@@ -148,6 +149,157 @@ router.post(
 );
 
 /**
+ * Helper function to verify and process successful payment
+ * This is used by both webhook and manual verification
+ */
+const processSuccessfulPayment = async (reference, userId = null) => {
+  try {
+    // Find payment record
+    const payment = await Payment.findOne({ reference });
+    if (!payment) {
+      console.error(`Payment record not found for reference: ${reference}`);
+      return { success: false, error: 'Payment record not found' };
+    }
+
+    // If payment is already verified, skip
+    if (payment.status === 'success') {
+      console.log(`Payment ${reference} already verified`);
+      return { success: true, alreadyVerified: true, payment: payment };
+    }
+
+    // Verify payment with Paystack
+    const options = {
+      hostname: 'api.paystack.co',
+      port: 443,
+      path: `/transaction/verify/${reference}`,
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+      },
+    };
+
+    return new Promise((resolve) => {
+      const paystackReq = https.request(options, (paystackRes) => {
+        let data = '';
+        
+        console.log(`Paystack API response status: ${paystackRes.statusCode} for reference ${reference}`);
+
+        paystackRes.on('data', (chunk) => {
+          data += chunk;
+        });
+
+        paystackRes.on('end', async () => {
+          try {
+            const response = JSON.parse(data);
+            console.log(`Paystack verification response for ${reference}:`, {
+              status: response.status,
+              dataStatus: response.data?.status,
+              message: response.message
+            });
+
+            if (response.status && response.data && response.data.status === 'success') {
+              // Payment successful
+              console.log(`Payment ${reference} verified as successful by Paystack`);
+              payment.status = 'success';
+              payment.paidAt = new Date();
+              payment.gatewayResponse = JSON.stringify(response.data);
+              
+              // Save payment with error handling
+              try {
+                await payment.save();
+                console.log(`Payment ${reference} status updated to 'success' in database`);
+              } catch (saveError) {
+                console.error(`Error saving payment ${reference}:`, saveError);
+                resolve({
+                  success: false,
+                  error: 'Failed to save payment status',
+                  details: saveError.message,
+                });
+                return;
+              }
+
+              // Update user payment status
+              const userIdToUpdate = userId || payment.userId;
+              if (userIdToUpdate) {
+                try {
+                  const user = await User.findById(userIdToUpdate);
+                  if (user) {
+                    user.paymentStatus = true;
+                    await user.save();
+                    console.log(`Payment status updated for user: ${userIdToUpdate}`);
+                  } else {
+                    console.warn(`User ${userIdToUpdate} not found when updating payment status`);
+                  }
+                } catch (userError) {
+                  console.error(`Error updating user payment status for ${userIdToUpdate}:`, userError);
+                  // Don't fail the whole process if user update fails
+                }
+              }
+
+              resolve({
+                success: true,
+                message: 'Payment verified and processed successfully',
+                payment: payment,
+              });
+            } else {
+              // Payment failed or pending
+              console.log(`Payment ${reference} verification returned:`, {
+                status: response.status,
+                dataStatus: response.data?.status,
+                message: response.message
+              });
+              
+              // Only mark as failed if explicitly failed, otherwise keep as pending
+              if (response.data && response.data.status === 'failed') {
+                payment.status = 'failed';
+              } else {
+                // Keep as pending if status is not explicitly success or failed
+                console.log(`Payment ${reference} still pending, not marking as failed`);
+              }
+              
+              payment.gatewayResponse = JSON.stringify(response);
+              await payment.save();
+
+              resolve({
+                success: false,
+                error: 'Payment verification failed',
+                details: response.message || response.data?.gateway_response || 'Payment was not successful',
+              });
+            }
+          } catch (error) {
+            console.error('Error processing Paystack verification response:', error);
+            console.error('Response data:', data);
+            resolve({
+              success: false,
+              error: 'Failed to verify payment',
+              details: error.message,
+            });
+          }
+        });
+      });
+
+      paystackReq.on('error', (error) => {
+        console.error('Paystack API error:', error);
+        resolve({
+          success: false,
+          error: 'Payment verification failed',
+          details: error.message,
+        });
+      });
+
+      paystackReq.end();
+    });
+  } catch (error) {
+    console.error('Error in processSuccessfulPayment:', error);
+    return {
+      success: false,
+      error: 'Failed to process payment',
+      details: error.message,
+    };
+  }
+};
+
+/**
  * @route   POST /api/payments/verify-payment
  * @desc    Verify Paystack payment
  * @access  Private
@@ -196,86 +348,28 @@ router.post(
         });
       }
 
-      // Verify payment with Paystack
-      const options = {
-        hostname: 'api.paystack.co',
-        port: 443,
-        path: `/transaction/verify/${reference}`,
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-        },
-      };
+      // Use the shared payment processing function
+      const result = await processSuccessfulPayment(reference, userId);
 
-      const paystackReq = https.request(options, (paystackRes) => {
-        let data = '';
-
-        paystackRes.on('data', (chunk) => {
-          data += chunk;
+      if (result.success) {
+        res.json({
+          success: true,
+          message: 'Payment verified successfully',
+          data: {
+            reference: reference,
+            amount: result.payment.amount,
+            currency: result.payment.currency,
+            status: 'success',
+            paidAt: result.payment.paidAt,
+          },
         });
-
-        paystackRes.on('end', async () => {
-          try {
-            const response = JSON.parse(data);
-
-            if (response.status && response.data.status === 'success') {
-              // Payment successful
-              payment.status = 'success';
-              payment.paidAt = new Date();
-              payment.gatewayResponse = JSON.stringify(response.data);
-              await payment.save();
-
-              // Update user payment status
-              const user = await User.findById(userId);
-              if (user) {
-                user.paymentStatus = true;
-                await user.save();
-              }
-
-              res.json({
-                success: true,
-                message: 'Payment verified successfully',
-                data: {
-                  reference: reference,
-                  amount: payment.amount,
-                  currency: payment.currency,
-                  status: 'success',
-                  paidAt: payment.paidAt,
-                },
-              });
-            } else {
-              // Payment failed or pending
-              payment.status = 'failed';
-              payment.gatewayResponse = JSON.stringify(response);
-              await payment.save();
-
-              res.status(400).json({
-                success: false,
-                error: 'Payment verification failed',
-                details: response.message || 'Payment was not successful',
-              });
-            }
-          } catch (error) {
-            console.error('Error processing Paystack verification response:', error);
-            res.status(500).json({
-              success: false,
-              error: 'Failed to verify payment',
-              details: error.message,
-            });
-          }
-        });
-      });
-
-      paystackReq.on('error', (error) => {
-        console.error('Paystack API error:', error);
-        res.status(500).json({
+      } else {
+        res.status(400).json({
           success: false,
-          error: 'Payment verification failed',
-          details: error.message,
+          error: result.error || 'Payment verification failed',
+          details: result.details,
         });
-      });
-
-      paystackReq.end();
+      }
     } catch (error) {
       console.error('Payment verification error:', error);
       res.status(500).json({
@@ -287,5 +381,53 @@ router.post(
   }
 );
 
+/**
+ * @route   POST /api/payments/webhook
+ * @desc    Paystack webhook endpoint for automatic payment verification
+ * @access  Public (Paystack calls this endpoint)
+ */
+router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  try {
+    // Verify webhook signature from Paystack
+    // req.body is a Buffer when using express.raw()
+    const hash = crypto
+      .createHmac('sha512', process.env.PAYSTACK_SECRET_KEY)
+      .update(req.body)
+      .digest('hex');
+
+    if (hash !== req.headers['x-paystack-signature']) {
+      console.error('Invalid webhook signature');
+      return res.status(400).json({ success: false, error: 'Invalid signature' });
+    }
+
+    // Parse the JSON body
+    const event = JSON.parse(req.body.toString());
+
+    // Handle successful payment event
+    if (event.event === 'charge.success' || event.event === 'transaction.success') {
+      const reference = event.data.reference;
+      console.log(`Webhook received: Payment successful for reference ${reference}`);
+
+      // Process payment automatically
+      const result = await processSuccessfulPayment(reference);
+
+      if (result.success) {
+        console.log(`Payment ${reference} automatically verified via webhook`);
+        return res.status(200).json({ success: true, message: 'Payment processed' });
+      } else {
+        console.error(`Failed to process payment ${reference}:`, result.error);
+        return res.status(400).json({ success: false, error: result.error });
+      }
+    }
+
+    // Acknowledge other events
+    return res.status(200).json({ success: true, message: 'Event received' });
+  } catch (error) {
+    console.error('Webhook error:', error);
+    return res.status(500).json({ success: false, error: 'Webhook processing failed' });
+  }
+});
+
 module.exports = router;
+
 

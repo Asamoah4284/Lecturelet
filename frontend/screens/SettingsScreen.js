@@ -30,6 +30,7 @@ const SettingsContent = ({ navigation }) => {
   const [userPhoneNumber, setUserPhoneNumber] = useState('');
   const [userRole, setUserRole] = useState('');
   const [saving, setSaving] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState(false);
   
   // Payment states
   const [showPayment, setShowPayment] = useState(false);
@@ -78,6 +79,9 @@ const SettingsContent = ({ navigation }) => {
         if (userData.reminder_minutes !== undefined) {
           setReminderMinutes(String(userData.reminder_minutes));
         }
+        if (userData.payment_status !== undefined) {
+          setPaymentStatus(userData.payment_status);
+        }
       }
 
       // Fetch latest from backend
@@ -93,7 +97,8 @@ const SettingsContent = ({ navigation }) => {
         const user = data.data.user;
         setNotificationsEnabled(user.notifications_enabled ?? true);
         setReminderMinutes(String(user.reminder_minutes ?? 15));
-        // Update AsyncStorage
+        setPaymentStatus(user.payment_status ?? false);
+        // Update AsyncStorage with latest user data including payment status
         await AsyncStorage.setItem('@user_data', JSON.stringify(user));
       }
     } catch (error) {
@@ -285,32 +290,37 @@ const SettingsContent = ({ navigation }) => {
 
   // Handle WebView navigation to detect payment completion
   const handleWebViewNavigationStateChange = async (navState) => {
-    const { url } = navState;
-    console.log('WebView navigation:', url);
+    const { url, loading } = navState;
+    console.log('WebView navigation:', { url, loading });
     
-    // Paystack redirects after payment completion
-    // Check for various success indicators in the URL
-    if (url) {
-      // Success indicators: callback, success, verify, or specific Paystack success patterns
+    // Only process when page has finished loading
+    if (!loading && url) {
+      // Paystack success redirect URLs
+      const isPaystackSuccess = url === 'https://standard.paystack.co/close' || 
+                                url.includes('standard.paystack.co/close') ||
+                                (url.includes('checkout.paystack.com') && (url.includes('success') || url.includes('close')));
+      
+      // Other success indicators
       const isSuccess = url.includes('callback') || 
                        url.includes('success') || 
                        url.includes('verify') ||
                        url.includes('transaction/verify') ||
                        url.match(/\/success/i);
       
-      // Cancel indicators
-      const isCancel = url.includes('cancel') || 
-                      url.includes('close') ||
-                      url.match(/\/cancel/i);
+      // Cancel indicators (but not the Paystack close URL)
+      const isCancel = (url.includes('cancel') || url.match(/\/cancel/i)) && 
+                      !url.includes('standard.paystack.co/close') &&
+                      !url.includes('checkout.paystack.com');
       
-      if (isSuccess && !isCancel) {
-        // Small delay to ensure payment is processed
-        setTimeout(async () => {
-          setShowPayment(false);
-          setIsProcessingPayment(true);
-          await verifyPayment();
-        }, 1500);
+      if (isPaystackSuccess || (isSuccess && !isCancel)) {
+        console.log('Payment completed detected via navigation, verifying automatically...');
+        // Close payment modal immediately
+        setShowPayment(false);
+        setIsProcessingPayment(true);
+        // Verify payment immediately - Paystack has already processed it
+        await verifyPayment();
       } else if (isCancel) {
+        console.log('Payment cancelled detected');
         handlePaymentCancel();
       }
     }
@@ -331,42 +341,127 @@ const SettingsContent = ({ navigation }) => {
       const token = await AsyncStorage.getItem('@auth_token');
       
       if (!paymentData?.reference) {
+        console.error('No payment reference available for verification');
         throw new Error('No payment reference available');
       }
 
-      // Verify payment with backend
-      const verifyResponse = await fetch(getApiUrl('payments/verify-payment'), {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          reference: paymentData.reference,
-          amount: paymentData.amount,
-        }),
-      });
+      console.log('Verifying payment with reference:', paymentData.reference);
+      console.log('Payment data:', paymentData);
 
-      const verifyData = await verifyResponse.json();
+      // Verify payment with backend - add retry logic with delays
+      let verifyResponse;
+      let verifyData;
+      let retries = 3;
+      let delay = 1000; // Start with 1 second delay
+
+      while (retries > 0) {
+        try {
+          verifyResponse = await fetch(getApiUrl('payments/verify-payment'), {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              reference: paymentData.reference,
+              amount: paymentData.amount,
+            }),
+          });
+
+          verifyData = await verifyResponse.json();
+          console.log('Verification response:', verifyData);
+
+          if (verifyResponse.ok && verifyData.success) {
+            break; // Success, exit retry loop
+          } else if (retries > 1) {
+            // Wait before retrying
+            console.log(`Verification failed, retrying in ${delay}ms... (${retries - 1} retries left)`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            delay *= 2; // Exponential backoff
+            retries--;
+            continue;
+          } else {
+            break; // No more retries
+          }
+        } catch (fetchError) {
+          console.error('Fetch error during verification:', fetchError);
+          if (retries > 1) {
+            await new Promise(resolve => setTimeout(resolve, delay));
+            delay *= 2;
+            retries--;
+            continue;
+          } else {
+            throw fetchError;
+          }
+        }
+      }
 
       if (verifyResponse.ok && verifyData.success) {
-        // Update user data to reflect payment status
+        console.log('Payment verified successfully!');
+        
+        // Update payment status immediately for instant UI feedback
+        setPaymentStatus(true);
+        
+        // Update AsyncStorage immediately with payment status
+        const userDataString = await AsyncStorage.getItem('@user_data');
+        if (userDataString) {
+          const userData = JSON.parse(userDataString);
+          userData.payment_status = true;
+          await AsyncStorage.setItem('@user_data', JSON.stringify(userData));
+        }
+        
+        // Update user data from backend to reflect payment status (this will refresh the UI)
         await loadUserData();
+        
+        // Clear payment data
+        setPaymentData(null);
+        setIsProcessingPayment(false);
         
         Alert.alert(
           'Payment Successful! 🎉',
-          `Your payment of GH₵${paymentData.amount} has been processed successfully!`,
-          [{ text: 'OK' }]
+          `Your payment of GH₵${paymentData.amount} has been processed successfully! Your payment status has been updated.`,
+          [{ 
+            text: 'OK',
+            onPress: () => {
+              // Payment status is already updated, UI will show "Paid" status
+            }
+          }]
         );
       } else {
-        Alert.alert('Payment Verification Failed', verifyData.error || verifyData.message || 'Payment verification failed.');
+        console.error('Payment verification failed after retries:', verifyData);
+        setIsProcessingPayment(false);
+        Alert.alert(
+          'Payment Verification Failed', 
+          verifyData.error || verifyData.message || verifyData.details || 'Payment verification failed. The payment may still be processing. Please check your payment status in a few moments.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { 
+              text: 'Try Again', 
+              onPress: async () => {
+                setIsProcessingPayment(true);
+                await verifyPayment();
+              }
+            }
+          ]
+        );
       }
     } catch (error) {
       console.error('Payment verification error:', error);
-      Alert.alert('Error', 'Payment verification failed. Please contact support.');
-    } finally {
       setIsProcessingPayment(false);
-      setPaymentData(null);
+      Alert.alert(
+        'Error', 
+        'Payment verification failed. Please check your connection and try again. If the payment was successful, it will be verified automatically.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Retry', 
+            onPress: async () => {
+              setIsProcessingPayment(true);
+              await verifyPayment();
+            }
+          }
+        ]
+      );
     }
   };
 
@@ -379,14 +474,17 @@ const SettingsContent = ({ navigation }) => {
   };
 
   // Handle WebView message from Paystack (if using postMessage)
-  const handleWebViewMessage = (event) => {
+  const handleWebViewMessage = async (event) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
       
       if (data.status === 'success') {
+        console.log('Payment success message received, verifying automatically...');
+        // Close payment modal immediately
         setShowPayment(false);
         setIsProcessingPayment(true);
-        verifyPayment();
+        // Verify payment automatically - no manual intervention needed
+        await verifyPayment();
       } else if (data.status === 'cancel') {
         handlePaymentCancel();
       }
@@ -479,48 +577,75 @@ const SettingsContent = ({ navigation }) => {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Payment</Text>
 
+          {/* Payment Status */}
           <View style={styles.settingItem}>
             <View style={styles.settingLeft}>
-              <Ionicons name="card-outline" size={20} color="#6b7280" />
+              <Ionicons 
+                name={paymentStatus ? "checkmark-circle" : "alert-circle"} 
+                size={20} 
+                color={paymentStatus ? "#22c55e" : "#f59e0b"} 
+              />
               <View style={styles.settingInfo}>
-                <Text style={styles.settingLabel}>Make Payment</Text>
-                <Text style={styles.settingDescription}>
-                  Pay GH₵{FIXED_PAYMENT_AMOUNT} for course enrollment and services
+                <Text style={styles.settingLabel}>Payment Status</Text>
+                <Text style={[styles.settingDescription, paymentStatus && styles.paymentStatusPaid]}>
+                  {paymentStatus ? 'Paid' : 'Not Paid - Payment required for course enrollment'}
                 </Text>
               </View>
             </View>
-          </View>
-
-          <View style={styles.paymentEmailContainer}>
-            <Text style={styles.paymentEmailLabel}>Email Address</Text>
-            <TextInput
-              style={styles.paymentEmailInput}
-              value={paymentEmail}
-              onChangeText={setPaymentEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              placeholder={userEmail || "Enter your email address"}
-              placeholderTextColor="#9ca3af"
-            />
-            {userEmail && (
-              <Text style={styles.paymentEmailHint}>
-                Using profile email: {userEmail}
-              </Text>
+            {paymentStatus && (
+              <View style={styles.paidBadge}>
+                <Ionicons name="checkmark" size={16} color="#ffffff" />
+                <Text style={styles.paidBadgeText}>Paid</Text>
+              </View>
             )}
           </View>
 
-          <TouchableOpacity
-            style={[styles.payButton, isProcessingPayment && styles.payButtonDisabled]}
-            onPress={handleInitializePayment}
-            disabled={isProcessingPayment}
-          >
-            {isProcessingPayment ? (
-              <ActivityIndicator size="small" color="#ffffff" />
-            ) : (
-              <Text style={styles.payButtonText}>Pay GH₵{FIXED_PAYMENT_AMOUNT}</Text>
-            )}
-          </TouchableOpacity>
+          {!paymentStatus && (
+            <>
+              <View style={styles.settingItem}>
+                <View style={styles.settingLeft}>
+                  <Ionicons name="card-outline" size={20} color="#6b7280" />
+                  <View style={styles.settingInfo}>
+                    <Text style={styles.settingLabel}>Make Payment</Text>
+                    <Text style={styles.settingDescription}>
+                      Pay GH₵{FIXED_PAYMENT_AMOUNT} for course enrollment and services
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.paymentEmailContainer}>
+                <Text style={styles.paymentEmailLabel}>Email Address</Text>
+                <TextInput
+                  style={styles.paymentEmailInput}
+                  value={paymentEmail}
+                  onChangeText={setPaymentEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder={userEmail || "Enter your email address"}
+                  placeholderTextColor="#9ca3af"
+                />
+                {userEmail && (
+                  <Text style={styles.paymentEmailHint}>
+                    Using profile email: {userEmail}
+                  </Text>
+                )}
+              </View>
+
+              <TouchableOpacity
+                style={[styles.payButton, isProcessingPayment && styles.payButtonDisabled]}
+                onPress={handleInitializePayment}
+                disabled={isProcessingPayment}
+              >
+                {isProcessingPayment ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={styles.payButtonText}>Pay GH₵{FIXED_PAYMENT_AMOUNT}</Text>
+                )}
+              </TouchableOpacity>
+            </>
+          )}
         </View>
 
         {/* Support Section */}
@@ -576,12 +701,6 @@ const SettingsContent = ({ navigation }) => {
               <Text style={styles.paymentTitle}>Complete Payment</Text>
               <View style={styles.paymentCloseButton} />
             </View>
-            
-            <View style={styles.paymentInfo}>
-              <Text style={styles.paymentAmountLabel}>Amount</Text>
-              <Text style={styles.paymentAmount}>GH₵{paymentData.amount}</Text>
-              <Text style={styles.paymentEmail}>{paymentData.email || userEmail}</Text>
-            </View>
 
             <WebView
               ref={webViewRef}
@@ -611,21 +730,94 @@ const SettingsContent = ({ navigation }) => {
               }}
               injectedJavaScript={`
                 (function() {
+                  var verificationSent = false;
+                  
                   // Monitor for Paystack payment completion
                   window.addEventListener('message', function(event) {
-                    if (event.data && event.data.status) {
+                    if (event.data && event.data.status && !verificationSent) {
+                      verificationSent = true;
                       window.ReactNativeWebView.postMessage(JSON.stringify(event.data));
                     }
                   });
                   
-                  // Also check for URL changes that indicate completion
+                  // Check current URL and page content for success indicators
+                  function checkUrl() {
+                    if (verificationSent) return;
+                    
+                    var url = window.location.href;
+                    var bodyText = document.body ? document.body.innerText.toLowerCase() : '';
+                    var bodyHTML = document.body ? document.body.innerHTML.toLowerCase() : '';
+                    
+                    // Paystack success redirect URLs
+                    if (url === 'https://standard.paystack.co/close' || 
+                        url.includes('standard.paystack.co/close') ||
+                        url.includes('checkout.paystack.com') && (url.includes('success') || url.includes('close'))) {
+                      verificationSent = true;
+                      window.ReactNativeWebView.postMessage(JSON.stringify({status: 'success', source: 'url'}));
+                      return;
+                    }
+                    
+                    // Check for success text in page content (Paystack success page)
+                    if (bodyText.includes('payment successful') || 
+                        bodyText.includes('transaction successful') ||
+                        bodyText.includes('you paid') ||
+                        bodyHTML.includes('payment successful') ||
+                        bodyHTML.includes('transaction successful') ||
+                        document.querySelector('[class*="success"]') ||
+                        document.querySelector('[id*="success"]')) {
+                      verificationSent = true;
+                      window.ReactNativeWebView.postMessage(JSON.stringify({status: 'success', source: 'content'}));
+                      return;
+                    }
+                    
+                    // Other success indicators in URL
+                    if (url.includes('success') || 
+                        url.includes('callback') || 
+                        url.includes('verify') ||
+                        url.includes('transaction/verify')) {
+                      verificationSent = true;
+                      window.ReactNativeWebView.postMessage(JSON.stringify({status: 'success', source: 'url-pattern'}));
+                    }
+                  }
+                  
+                  // Check immediately
+                  checkUrl();
+                  
+                  // Check on load
+                  if (document.readyState === 'complete') {
+                    setTimeout(checkUrl, 500);
+                  } else {
+                    window.addEventListener('load', function() {
+                      setTimeout(checkUrl, 500);
+                    });
+                  }
+                  
+                  // Monitor URL changes
                   var originalPushState = history.pushState;
+                  var originalReplaceState = history.replaceState;
+                  
                   history.pushState = function() {
                     originalPushState.apply(history, arguments);
-                    if (window.location.href.includes('success') || window.location.href.includes('callback')) {
-                      window.ReactNativeWebView.postMessage(JSON.stringify({status: 'success'}));
-                    }
+                    setTimeout(checkUrl, 200);
                   };
+                  
+                  history.replaceState = function() {
+                    originalReplaceState.apply(history, arguments);
+                    setTimeout(checkUrl, 200);
+                  };
+                  
+                  // Monitor hash changes
+                  window.addEventListener('hashchange', function() {
+                    setTimeout(checkUrl, 200);
+                  });
+                  
+                  // Monitor popstate (back/forward navigation)
+                  window.addEventListener('popstate', function() {
+                    setTimeout(checkUrl, 200);
+                  });
+                  
+                  // Periodic check for success indicators (every 500ms for faster detection)
+                  setInterval(checkUrl, 500);
                 })();
               `}
             />
@@ -963,6 +1155,24 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     marginTop: 6,
     fontStyle: 'italic',
+  },
+  paymentStatusPaid: {
+    color: '#22c55e',
+    fontWeight: '500',
+  },
+  paidBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#22c55e',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    gap: 4,
+  },
+  paidBadgeText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });
 

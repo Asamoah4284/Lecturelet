@@ -20,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Button from '../components/Button';
 import { getApiUrl, PAYSTACK_PUBLIC_KEY } from '../config/api';
 import { initializeNotifications, removePushToken } from '../services/notificationService';
+import { syncAndScheduleReminders, cancelAllReminders } from '../services/localReminderService';
 
 const SettingsContent = ({ navigation }) => {
   const webViewRef = useRef(null);
@@ -153,8 +154,12 @@ const SettingsContent = ({ navigation }) => {
         // Initialize or remove notifications based on preference
         if (notificationsEnabled) {
           await initializeNotifications();
+          // Rebuild local reminder notifications with new preference
+          await syncAndScheduleReminders(reminderMinutesNum);
         } else {
           await removePushToken();
+          // Cancel all local reminders if notifications are disabled
+          await cancelAllReminders();
         }
 
         Alert.alert('Success', 'Settings saved successfully');

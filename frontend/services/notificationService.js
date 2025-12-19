@@ -263,3 +263,32 @@ export const getLastNotificationResponse = async () => {
   }
 };
 
+/**
+ * Check if a notification is a local reminder notification
+ * @param {Object} notification - Notification object
+ * @returns {boolean} True if it's a local reminder
+ */
+export const isLocalReminderNotification = (notification) => {
+  const identifier = notification?.request?.identifier || notification?.identifier || '';
+  const data = notification?.request?.content?.data || notification?.data || {};
+  
+  return identifier.startsWith('local_reminder_') || 
+         (data.type === 'class_reminder' && data.source === 'local');
+};
+
+/**
+ * Check if a notification is a push notification (real-time update)
+ * @param {Object} notification - Notification object
+ * @returns {boolean} True if it's a push notification
+ */
+export const isPushNotification = (notification) => {
+  const data = notification?.request?.content?.data || notification?.data || {};
+  const identifier = notification?.request?.identifier || notification?.identifier || '';
+  
+  // Push notifications have types like 'course_update', 'lecture_reminder' (from backend)
+  // and don't have the local_reminder_ prefix
+  return !identifier.startsWith('local_reminder_') && 
+         (data.type === 'course_update' || 
+          (data.type === 'lecture_reminder' && data.source !== 'local'));
+};
+

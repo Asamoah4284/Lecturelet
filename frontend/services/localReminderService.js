@@ -99,6 +99,8 @@ const calculateUpcomingClasses = (course, fromDate = new Date()) => {
           courseId: course.id || course._id,
           courseName: course.course_name || course.courseName,
           updatedAt: course.updated_at || course.updatedAt,
+          indexFrom: course.index_from || course.indexFrom,
+          indexTo: course.index_to || course.indexTo,
         });
       }
     }
@@ -162,6 +164,8 @@ export const cancelCourseReminders = async (courseId) => {
  * @param {Date} params.classDate - Class start date/time
  * @param {Date} params.reminderDate - When to show the reminder
  * @param {number} params.reminderMinutes - Minutes before class
+ * @param {string} params.indexFrom - Index from (optional)
+ * @param {string} params.indexTo - Index to (optional)
  * @returns {Promise<string|null>} Notification identifier or null if failed
  */
 const scheduleReminderNotification = async ({
@@ -170,6 +174,8 @@ const scheduleReminderNotification = async ({
   classDate,
   reminderDate,
   reminderMinutes,
+  indexFrom,
+  indexTo,
 }) => {
   try {
     // Don't schedule if reminder time is in the past
@@ -183,9 +189,17 @@ const scheduleReminderNotification = async ({
     // Cancel any existing notification with same identifier
     await Notifications.cancelScheduledNotificationAsync(identifier);
     
+    // Format index range
+    let indexRangeText = '';
+    if (indexFrom && indexTo) {
+      indexRangeText = ` Index: ${indexFrom} - ${indexTo}.`;
+    } else if (indexFrom) {
+      indexRangeText = ` Index: ${indexFrom}.`;
+    }
+    
     const notificationContent = {
       title: 'Class Reminder',
-      body: `Your next class, ${courseName}, starts in ${reminderMinutes} minutes.`,
+      body: `Your next class, ${courseName}, starts in ${reminderMinutes} minutes.${indexRangeText}`,
       data: {
         type: 'class_reminder',
         courseId: courseId.toString(),
@@ -363,6 +377,8 @@ export const syncAndScheduleReminders = async (customReminderMinutes = null) => 
               classDate: classInfo.date,
               reminderDate,
               reminderMinutes,
+              indexFrom: classInfo.indexFrom,
+              indexTo: classInfo.indexTo,
             });
             
             if (identifier) {

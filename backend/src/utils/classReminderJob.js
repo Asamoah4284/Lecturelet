@@ -294,11 +294,19 @@ const processClassReminders = async () => {
             hour12: true,
           });
           
+          // Format index range
+          let indexRangeText = '';
+          if (course.indexFrom && course.indexTo) {
+            indexRangeText = ` Index: ${course.indexFrom} - ${course.indexTo}.`;
+          } else if (course.indexFrom) {
+            indexRangeText = ` Index: ${course.indexFrom}.`;
+          }
+          
           // Create notification message with user's name
           const venue = course.venue ? ` at ${course.venue}` : '';
           const userName = user.fullName || 'Student';
           const title = 'Class Reminder';
-          const body = `Hi ${userName}, your ${course.courseName} class starts in ${reminderMinutes} minutes${venue}. Time: ${timeStr}`;
+          const body = `Hi ${userName}, your ${course.courseName} class starts in ${reminderMinutes} minutes${venue}. Time: ${timeStr}${indexRangeText}`;
           
           // Send push notification
           console.log(`Attempting to send notification to user ${user._id} for course ${course.courseName}`, {

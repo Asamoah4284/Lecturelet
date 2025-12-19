@@ -113,6 +113,7 @@ const RoleSelectScreen = ({ navigation, route }) => {
         password: signupData.password,
         fullName: signupData.fullName,
         role: backendRole,
+        college: signupData.college || null,
       };
 
       console.log('Creating account with:', { ...requestBody, password: '***' });

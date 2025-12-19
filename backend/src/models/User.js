@@ -26,6 +26,11 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  college: {
+    type: String,
+    default: null,
+    trim: true
+  },
   notificationsEnabled: {
     type: Boolean,
     default: true
@@ -86,6 +91,7 @@ userSchema.methods.toPublicJSON = function() {
     full_name: this.fullName,
     role: this.role,
     student_id: this.studentId,
+    college: this.college,
     notifications_enabled: this.notificationsEnabled,
     reminder_minutes: this.reminderMinutes,
     payment_status: this.paymentStatus,

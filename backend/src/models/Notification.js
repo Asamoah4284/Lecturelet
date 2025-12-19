@@ -38,17 +38,27 @@ notificationSchema.index({ userId: 1, createdAt: -1 });
 /**
  * Create notifications for all students in a course
  */
-notificationSchema.statics.createForCourse = async function(courseId, { title, message, type = 'course_update' }) {
+notificationSchema.statics.createForCourse = async function(courseId, { title, message, type = 'course_update', senderName = null }) {
   const Enrollment = mongoose.model('Enrollment');
-  const enrollments = await Enrollment.find({ courseId });
+  const User = mongoose.model('User');
+  const enrollments = await Enrollment.find({ courseId }).populate('userId', 'fullName');
   
-  const notifications = enrollments.map(e => ({
-    userId: e.userId,
-    title,
-    message,
-    type,
-    courseId
-  }));
+  // Create personalized notifications for each student
+  const notifications = [];
+  for (const enrollment of enrollments) {
+    const student = enrollment.userId;
+    const studentName = student?.fullName || 'Student';
+    // Use student's name instead of sender's name
+    const personalizedMessage = `Hi ${studentName}, ${message}`;
+    
+    notifications.push({
+      userId: enrollment.userId._id || enrollment.userId,
+      title,
+      message: personalizedMessage,
+      type,
+      courseId
+    });
+  }
   
   await this.insertMany(notifications);
   return enrollments.length;

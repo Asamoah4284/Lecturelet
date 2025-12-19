@@ -294,10 +294,11 @@ const processClassReminders = async () => {
             hour12: true,
           });
           
-          // Create notification message
+          // Create notification message with user's name
           const venue = course.venue ? ` at ${course.venue}` : '';
+          const userName = user.fullName || 'Student';
           const title = 'Class Reminder';
-          const body = `Your ${course.courseName} class starts in ${reminderMinutes} minutes${venue}. Time: ${timeStr}`;
+          const body = `Hi ${userName}, your ${course.courseName} class starts in ${reminderMinutes} minutes${venue}. Time: ${timeStr}`;
           
           // Send push notification
           console.log(`Attempting to send notification to user ${user._id} for course ${course.courseName}`, {

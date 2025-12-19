@@ -7,6 +7,7 @@ const quizRoutes = require('./quizzes');
 const assignmentRoutes = require('./assignments');
 const tutorialRoutes = require('./tutorials');
 const paymentRoutes = require('./payments');
+const feedbackRoutes = require('./feedback');
 
 const router = express.Router();
 
@@ -28,6 +29,7 @@ router.use('/quizzes', quizRoutes);
 router.use('/assignments', assignmentRoutes);
 router.use('/tutorials', tutorialRoutes);
 router.use('/payments', paymentRoutes);
+router.use('/feedback', feedbackRoutes);
 
 module.exports = router;
 

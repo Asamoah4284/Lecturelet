@@ -12,6 +12,7 @@ const User = require('../models/User');
 const Course = require('../models/Course');
 const Enrollment = require('../models/Enrollment');
 const Notification = require('../models/Notification');
+const College = require('../models/College');
 
 /**
  * Sample Users Data
@@ -194,6 +195,32 @@ const sampleCourses = [
 ];
 
 /**
+ * Sample Colleges Data
+ */
+const sampleColleges = [
+  {
+    name: 'College of Humanities and Legal Studies',
+    isActive: true
+  },
+  {
+    name: 'College of Education Studies',
+    isActive: true
+  },
+  {
+    name: 'College of Agricultural and Natural Sciences',
+    isActive: true
+  },
+  {
+    name: 'College of Health and Allied Sciences',
+    isActive: true
+  },
+  {
+    name: 'College of Distance Education',
+    isActive: true
+  }
+];
+
+/**
  * Sample Notification Templates
  */
 const notificationTemplates = [
@@ -228,9 +255,32 @@ const clearDatabase = async () => {
     User.deleteMany({}),
     Course.deleteMany({}),
     Enrollment.deleteMany({}),
-    Notification.deleteMany({})
+    Notification.deleteMany({}),
+    College.deleteMany({})
   ]);
   console.log('✅ Database cleared');
+};
+
+/**
+ * Seed Colleges
+ */
+const seedColleges = async () => {
+  console.log('🏛️  Seeding colleges...');
+  // Use insertMany with ordered: false to handle duplicates gracefully
+  try {
+    const colleges = await College.insertMany(sampleColleges, { ordered: false });
+    console.log(`✅ Created ${colleges.length} colleges`);
+    return colleges;
+  } catch (error) {
+    // If colleges already exist, just fetch them
+    if (error.code === 11000) {
+      console.log('ℹ️  Colleges already exist, skipping...');
+      const existingColleges = await College.find({});
+      console.log(`✅ Found ${existingColleges.length} existing colleges`);
+      return existingColleges;
+    }
+    throw error;
+  }
 };
 
 /**
@@ -382,10 +432,18 @@ const seedDatabase = async () => {
   try {
     await connectDB();
     
-    // Clear existing data
-    await clearDatabase();
+    // Clear existing data (but keep colleges if they exist)
+    console.log('🗑️  Clearing existing data...');
+    await Promise.all([
+      User.deleteMany({}),
+      Course.deleteMany({}),
+      Enrollment.deleteMany({}),
+      Notification.deleteMany({})
+    ]);
+    console.log('✅ Database cleared (colleges preserved)');
     
     // Seed data
+    await seedColleges(); // Seed colleges first
     const users = await seedUsers();
     const courses = await seedCourses(users);
     await seedEnrollments(users, courses);
@@ -393,6 +451,7 @@ const seedDatabase = async () => {
     
     console.log('\n🎉 Database seeding completed successfully!\n');
     console.log('📋 Summary:');
+    console.log('   - Colleges: 5');
     console.log('   - Users: 8 (2 course reps, 6 students)');
     console.log('   - Courses: 8');
     console.log('   - Enrollments: varies based on random assignment');

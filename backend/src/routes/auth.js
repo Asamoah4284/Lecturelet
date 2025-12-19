@@ -1,6 +1,6 @@
 const express = require('express');
 const { body } = require('express-validator');
-const { User } = require('../models');
+const { User, College } = require('../models');
 const { authenticate, generateToken } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 
@@ -92,11 +92,28 @@ router.post(
     body('studentId')
       .optional()
       .trim(),
+    body('college')
+      .optional()
+      .trim(),
   ],
   validate,
   async (req, res) => {
     try {
-      const { phoneNumber, password, fullName, role, studentId } = req.body;
+      const { phoneNumber, password, fullName, role, studentId, college } = req.body;
+
+      // Validate college if provided
+      if (college) {
+        const collegeExists = await College.findOne({ 
+          name: college.trim(), 
+          isActive: true 
+        });
+        if (!collegeExists) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid college selection',
+          });
+        }
+      }
 
       // Check if phone number already exists
       const phoneExists = await User.phoneNumberExists(phoneNumber);
@@ -114,6 +131,7 @@ router.post(
         fullName: fullName.trim(),
         role,
         studentId: studentId ? studentId.trim() : null,
+        college: college || null,
       });
 
       await user.save();
@@ -231,5 +249,33 @@ router.put(
     }
   }
 );
+
+/**
+ * @route   GET /api/auth/colleges
+ * @desc    Get list of available colleges from database
+ * @access  Public
+ */
+router.get('/colleges', async (req, res) => {
+  try {
+    const colleges = await College.find({ isActive: true })
+      .sort({ name: 1 })
+      .select('name -_id');
+
+    const collegeNames = colleges.map(college => college.name);
+
+    res.json({
+      success: true,
+      data: {
+        colleges: collegeNames,
+      },
+    });
+  } catch (error) {
+    console.error('Get colleges error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch colleges',
+    });
+  }
+});
 
 module.exports = router;

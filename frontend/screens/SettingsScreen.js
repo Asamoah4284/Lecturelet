@@ -39,6 +39,11 @@ const SettingsContent = ({ navigation }) => {
   const [paymentEmail, setPaymentEmail] = useState('');
   const FIXED_PAYMENT_AMOUNT = 20; // Fixed payment amount in GHS
 
+  // Feedback states
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+
   // Load user data on mount
   useEffect(() => {
     loadUserData();
@@ -474,6 +479,51 @@ const SettingsContent = ({ navigation }) => {
     // Don't clear paymentEmail so user doesn't have to re-enter if they try again
   };
 
+  /**
+   * Handles feedback submission
+   */
+  const handleSubmitFeedback = async () => {
+    if (feedbackMessage.trim().length < 10) {
+      Alert.alert('Invalid Feedback', 'Please provide at least 10 characters of feedback.');
+      return;
+    }
+
+    setSubmittingFeedback(true);
+    try {
+      const token = await AsyncStorage.getItem('@auth_token');
+      if (!token) {
+        Alert.alert('Error', 'Not authenticated. Please log in again.');
+        return;
+      }
+
+      const response = await fetch(getApiUrl('feedback'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          message: feedbackMessage.trim(),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        Alert.alert('Thank You!', data.message || 'Your feedback has been submitted successfully.');
+        setFeedbackMessage('');
+        setShowFeedbackModal(false);
+      } else {
+        Alert.alert('Error', data.message || 'Failed to submit feedback. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error submitting feedback:', error);
+      Alert.alert('Error', 'Failed to submit feedback. Please check your connection and try again.');
+    } finally {
+      setSubmittingFeedback(false);
+    }
+  };
+
   // Handle WebView message from Paystack (if using postMessage)
   const handleWebViewMessage = async (event) => {
     try {
@@ -670,6 +720,27 @@ const SettingsContent = ({ navigation }) => {
           </TouchableOpacity>
         </View>
 
+        {/* Help Us Get Better Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Help Us Get Better</Text>
+
+          <TouchableOpacity
+            style={styles.settingItem}
+            onPress={() => setShowFeedbackModal(true)}
+          >
+            <View style={styles.settingLeft}>
+              <Ionicons name="chatbubble-ellipses-outline" size={20} color="#6b7280" />
+              <View style={styles.settingInfo}>
+                <Text style={styles.settingLabel}>Share Your Feedback</Text>
+                <Text style={styles.settingDescription}>
+                  Tell us how we can improve the app
+                </Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+          </TouchableOpacity>
+        </View>
+
         {/* Save Settings Button */}
         <Button
           title={saving ? "Saving..." : "Save Settings"}
@@ -686,6 +757,88 @@ const SettingsContent = ({ navigation }) => {
 
         <Text style={styles.versionText}>Version 1.0.0</Text>
       </ScrollView>
+
+      {/* Feedback Modal */}
+      <Modal
+        visible={showFeedbackModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowFeedbackModal(false)}
+      >
+        <View style={styles.feedbackModalOverlay}>
+          <View style={styles.feedbackModalContent}>
+            <View style={styles.feedbackModalHeader}>
+              <Text style={styles.feedbackModalTitle}>Help Us Get Better</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowFeedbackModal(false);
+                  setFeedbackMessage('');
+                }}
+                style={styles.feedbackModalCloseButton}
+              >
+                <Ionicons name="close" size={24} color="#6b7280" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.feedbackModalBody}>
+              <Text style={styles.feedbackModalDescription}>
+                We value your opinion! Share your thoughts, suggestions, or report any issues you've encountered. Your feedback helps us make LectureLet better for everyone.
+              </Text>
+
+              <View style={styles.feedbackInputContainer}>
+                <Text style={styles.feedbackInputLabel}>Your Feedback</Text>
+                <TextInput
+                  style={styles.feedbackInput}
+                  placeholder="Tell us what you think... (minimum 10 characters)"
+                  placeholderTextColor="#9ca3af"
+                  value={feedbackMessage}
+                  onChangeText={setFeedbackMessage}
+                  multiline
+                  numberOfLines={8}
+                  textAlignVertical="top"
+                  maxLength={2000}
+                  editable={!submittingFeedback}
+                />
+                <Text style={styles.feedbackCharCount}>
+                  {feedbackMessage.length}/2000 characters
+                </Text>
+              </View>
+            </ScrollView>
+
+            <View style={styles.feedbackModalFooter}>
+              <TouchableOpacity
+                style={[
+                  styles.feedbackCancelButton,
+                  submittingFeedback && styles.feedbackButtonDisabled,
+                ]}
+                onPress={() => {
+                  setShowFeedbackModal(false);
+                  setFeedbackMessage('');
+                }}
+                disabled={submittingFeedback}
+              >
+                <Text style={styles.feedbackCancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.feedbackSubmitButton,
+                  (submittingFeedback || feedbackMessage.trim().length < 10) &&
+                    styles.feedbackButtonDisabled,
+                ]}
+                onPress={handleSubmitFeedback}
+                disabled={submittingFeedback || feedbackMessage.trim().length < 10}
+              >
+                {submittingFeedback ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={styles.feedbackSubmitButtonText}>Submit</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Paystack Payment WebView Modal */}
       {showPayment && paymentData?.authorizationUrl && (
@@ -1174,6 +1327,109 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 12,
     fontWeight: '600',
+  },
+  feedbackModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  feedbackModalContent: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '90%',
+  },
+  feedbackModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  feedbackModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  feedbackModalCloseButton: {
+    padding: 4,
+  },
+  feedbackModalBody: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  feedbackModalDescription: {
+    fontSize: 14,
+    color: '#6b7280',
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  feedbackInputContainer: {
+    marginBottom: 16,
+  },
+  feedbackInputLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#4b5563',
+    marginBottom: 8,
+  },
+  feedbackInput: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: '#111827',
+    backgroundColor: '#f9fafb',
+    minHeight: 150,
+    maxHeight: 300,
+  },
+  feedbackCharCount: {
+    fontSize: 11,
+    color: '#9ca3af',
+    textAlign: 'right',
+    marginTop: 6,
+  },
+  feedbackModalFooter: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    gap: 12,
+  },
+  feedbackCancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  feedbackCancelButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6b7280',
+  },
+  feedbackSubmitButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#2563eb',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  feedbackSubmitButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#ffffff',
+  },
+  feedbackButtonDisabled: {
+    opacity: 0.5,
   },
 });
 

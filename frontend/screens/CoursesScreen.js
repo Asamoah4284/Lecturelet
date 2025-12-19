@@ -352,6 +352,10 @@ const CoursesScreen = ({ navigation }) => {
     const assignmentTranslateY = useRef(new Animated.Value(-10)).current;
     const assignmentScale = useRef(new Animated.Value(0.9)).current;
 
+    const announcementFade = useRef(new Animated.Value(0)).current;
+    const announcementTranslateY = useRef(new Animated.Value(-10)).current;
+    const announcementScale = useRef(new Animated.Value(0.9)).current;
+
     useEffect(() => {
       if (isExpanded) {
         // Reset all animations
@@ -364,6 +368,9 @@ const CoursesScreen = ({ navigation }) => {
         assignmentFade.setValue(0);
         assignmentTranslateY.setValue(-10);
         assignmentScale.setValue(0.9);
+        announcementFade.setValue(0);
+        announcementTranslateY.setValue(-10);
+        announcementScale.setValue(0.9);
 
         // Animate Quiz first (no delay)
         Animated.parallel([
@@ -428,9 +435,46 @@ const CoursesScreen = ({ navigation }) => {
             }),
           ]).start();
         }, 200);
+
+        // Animate Announcement fourth (300ms delay)
+        setTimeout(() => {
+          Animated.parallel([
+            Animated.timing(announcementFade, {
+              toValue: 1,
+              duration: 300,
+              useNativeDriver: true,
+            }),
+            Animated.timing(announcementTranslateY, {
+              toValue: 0,
+              duration: 300,
+              useNativeDriver: true,
+            }),
+            Animated.spring(announcementScale, {
+              toValue: 1,
+              tension: 50,
+              friction: 7,
+              useNativeDriver: true,
+            }),
+          ]).start();
+        }, 300);
       } else {
         // Collapse all at once (reverse order for smooth exit)
         Animated.parallel([
+          Animated.timing(announcementFade, {
+            toValue: 0,
+            duration: 150,
+            useNativeDriver: true,
+          }),
+          Animated.timing(announcementTranslateY, {
+            toValue: -10,
+            duration: 150,
+            useNativeDriver: true,
+          }),
+          Animated.timing(announcementScale, {
+            toValue: 0.9,
+            duration: 150,
+            useNativeDriver: true,
+          }),
           Animated.timing(assignmentFade, {
             toValue: 0,
             duration: 150,
@@ -591,6 +635,35 @@ const CoursesScreen = ({ navigation }) => {
             <Ionicons name="document-text-outline" size={14} color="#f97316" />
             <Text style={[styles.activityBadgeText, { color: '#f97316' }]}>
               Assignment {courseActivities?.assignments?.length > 0 && `(${courseActivities.assignments.length})`}
+            </Text>
+          </Animated.View>
+        </TouchableOpacity>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => {
+            if (isExpanded) {
+              navigation.navigate('Announcement', { course });
+            }
+          }}
+          disabled={!isExpanded}
+        >
+          <Animated.View
+            style={[
+              styles.activityBadge,
+              styles.announcementBadge,
+              {
+                opacity: announcementFade,
+                transform: [
+                  { translateY: announcementTranslateY },
+                  { scale: announcementScale },
+                ],
+              },
+            ]}
+            pointerEvents={isExpanded ? 'auto' : 'none'}
+          >
+            <Ionicons name="megaphone-outline" size={14} color="#8b5cf6" />
+            <Text style={[styles.activityBadgeText, { color: '#8b5cf6' }]}>
+              Announcement
             </Text>
           </Animated.View>
         </TouchableOpacity>
@@ -1388,6 +1461,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#fed7aa',
     borderColor: '#f97316',
     minWidth: 105,
+  },
+  announcementBadge: {
+    backgroundColor: '#ede9fe',
+    borderColor: '#8b5cf6',
+    minWidth: 120,
   },
   courseDetails: {
     marginBottom: 12,

@@ -6,6 +6,9 @@ const Payment = require('./Payment');
 const Quiz = require('./Quiz');
 const Assignment = require('./Assignment');
 const Tutorial = require('./Tutorial');
+const College = require('./College');
+const Feedback = require('./Feedback');
+const SmsLog = require('./SmsLog');
 
 module.exports = {
   User,
@@ -16,6 +19,9 @@ module.exports = {
   Quiz,
   Assignment,
   Tutorial,
+  College,
+  Feedback,
+  SmsLog,
 };
 
 

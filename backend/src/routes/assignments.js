@@ -4,6 +4,7 @@ const { Assignment, Course, Enrollment, Notification, User } = require('../model
 const { authenticate, authorize } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const { sendBulkPushNotifications } = require('../utils/pushNotificationService');
+const { sendBulkSMS } = require('../utils/smsService');
 
 const router = express.Router();
 
@@ -89,22 +90,111 @@ router.post(
         createdBy: req.user.id,
       });
 
+      // Helper function to calculate next class time (similar to classReminderJob)
+      const calculateNextClassTime = (courseData, fromDate = new Date()) => {
+        try {
+          const days = courseData.days || [];
+          if (days.length === 0) return null;
+          
+          const dayTimes = courseData.dayTimes || {};
+          const hasDayTimes = Object.keys(dayTimes).length > 0;
+          
+          const getDayName = (date) => {
+            const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            return days[date.getDay()];
+          };
+          
+          const parseTime = (timeStr, date) => {
+            if (!timeStr) return null;
+            try {
+              const time12Hour = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+              if (time12Hour) {
+                let hours = parseInt(time12Hour[1], 10);
+                const minutes = parseInt(time12Hour[2], 10);
+                const ampm = time12Hour[3].toUpperCase();
+                if (ampm === 'PM' && hours !== 12) hours += 12;
+                if (ampm === 'AM' && hours === 12) hours = 0;
+                const result = new Date(date);
+                result.setHours(hours, minutes, 0, 0);
+                return result;
+              }
+              const time24Hour = timeStr.match(/(\d{1,2}):(\d{2})/);
+              if (time24Hour) {
+                const hours = parseInt(time24Hour[1], 10);
+                const minutes = parseInt(time24Hour[2], 10);
+                const result = new Date(date);
+                result.setHours(hours, minutes, 0, 0);
+                return result;
+              }
+              return null;
+            } catch (error) {
+              return null;
+            }
+          };
+          
+          for (let i = 0; i < 7; i++) {
+            const checkDate = new Date(fromDate);
+            checkDate.setDate(checkDate.getDate() + i);
+            const dayName = getDayName(checkDate);
+            
+            if (!days.includes(dayName)) continue;
+            
+            let startTime = null;
+            
+            if (hasDayTimes && dayTimes[dayName]) {
+              startTime = parseTime(dayTimes[dayName].startTime, checkDate);
+            } else {
+              startTime = parseTime(courseData.startTime, checkDate);
+            }
+            
+            if (startTime) {
+              const timeDiff = startTime.getTime() - fromDate.getTime();
+              const thirtyMinutes = 30 * 60 * 1000;
+              if (timeDiff >= -thirtyMinutes) {
+                return startTime;
+              }
+            }
+          }
+          
+          return null;
+        } catch (error) {
+          return null;
+        }
+      };
+
+      // Check if assignment creation is within 30 minutes of next class time
+      const now = new Date();
+      const nextClassTime = calculateNextClassTime(course, now);
+      const thirtyMinutes = 30 * 60 * 1000;
+      const isWithinThirtyMinutes = nextClassTime && 
+                                    (nextClassTime.getTime() - now.getTime() <= thirtyMinutes && 
+                                     nextClassTime.getTime() - now.getTime() > 0);
+      
+      const shouldSendSMS = isWithinThirtyMinutes;
+
       // Get all enrolled students for the course
       const enrollments = await Enrollment.find({ courseId })
-        .populate('userId', 'pushToken notificationsEnabled fullName');
+        .populate('userId', 'pushToken notificationsEnabled fullName phoneNumber');
 
       // Prepare notifications for all enrolled students
       const notifications = [];
       const pushNotifications = [];
+      const smsRecipients = [];
+
+      const baseMessage = `A new assignment "${assignmentName}" has been created for ${courseName}. Submission deadline: ${date} at ${time}`;
 
       for (const enrollment of enrollments) {
         const student = enrollment.userId;
+        
+        // Get student's name for personalized notifications
+        const studentName = student.fullName || 'Student';
+        const personalizedMessage = `Hi ${studentName}, ${baseMessage}`;
         
         // Create in-app notification for all students
         notifications.push({
           userId: student._id,
           title: 'New Assignment Created',
-          message: `A new assignment "${assignmentName}" has been created for ${courseName}. Submission deadline: ${date} at ${time}`,
+          message: personalizedMessage,
           type: 'announcement',
           courseId: courseId,
         });
@@ -114,13 +204,27 @@ router.post(
           pushNotifications.push({
             pushToken: student.pushToken,
             title: 'New Assignment Created',
-            body: `A new assignment "${assignmentName}" has been created for ${courseName}. Submission deadline: ${date} at ${time}`,
+            body: personalizedMessage,
             data: {
               type: 'assignment_created',
               assignmentId: assignment._id.toString(),
               courseId: courseId.toString(),
               courseName: courseName,
             },
+          });
+        }
+
+        // Prepare SMS for students with phone numbers (only if within 30 minutes of class)
+        if (shouldSendSMS && student.phoneNumber) {
+          const smsMessage = `Hi ${studentName}, URGENT: New assignment "${assignmentName}" for ${courseName}. Deadline: ${date} at ${time}.`;
+          // Truncate if too long
+          const finalSmsMessage = smsMessage.length > 160 ? smsMessage.substring(0, 157) + '...' : smsMessage;
+          smsRecipients.push({
+            phoneNumber: student.phoneNumber,
+            message: finalSmsMessage,
+            userId: student._id,
+            type: 'assignment',
+            courseId: courseId
           });
         }
       }
@@ -141,6 +245,24 @@ router.post(
         }
       }
 
+      // Send SMS notifications (only if within 30 minutes of class)
+      let smsResult = { sent: 0, failed: 0, limitExceeded: 0 };
+      if (smsRecipients.length > 0) {
+        try {
+          console.log(`Sending ${smsRecipients.length} SMS notifications (within 30 minutes of class)`);
+          smsResult = await sendBulkSMS(smsRecipients);
+          console.log(`SMS notifications sent: ${smsResult.sent || 0} successful, ${smsResult.failed || 0} failed, ${smsResult.limitExceeded || 0} limit exceeded`);
+          if (smsResult.errors && smsResult.errors.length > 0) {
+            console.error('SMS errors:', smsResult.errors);
+          }
+        } catch (smsError) {
+          console.error('Error sending SMS notifications:', smsError);
+          // Don't fail the request if SMS fails
+        }
+      } else if (shouldSendSMS) {
+        console.log('No SMS recipients found (students may not have phone numbers)');
+      }
+
       res.status(201).json({
         success: true,
         message: 'Assignment created successfully',
@@ -148,6 +270,7 @@ router.post(
           assignment: assignment.toJSON(),
           notificationsSent: notifications.length,
           pushNotificationsSent: pushNotifications.length,
+          smsSent: smsResult.sent || 0,
         },
       });
     } catch (error) {

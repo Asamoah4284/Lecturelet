@@ -1,16 +1,62 @@
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApiUrl } from '../config/api';
 
 // Configure how notifications are handled when app is in foreground
+// This is critical for iOS to show notifications as banners and on lock screen
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
+  handleNotification: async (notification) => {
+    // For iOS, ensure all presentation options are enabled
+    if (Platform.OS === 'ios') {
+      return {
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+      };
+    }
+    // For Android, use default behavior
+    return {
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    };
+  },
 });
+
+/**
+ * Create Android notification channel (required for Android 8.0+)
+ * This must be called before any notifications can be displayed
+ */
+export const createNotificationChannel = async () => {
+  if (Platform.OS === 'android') {
+    try {
+      // Check if channel already exists
+      const channels = await Notifications.getNotificationChannelsAsync();
+      const channelExists = channels.some(channel => channel.id === 'default');
+      
+      if (!channelExists) {
+        // Create the default notification channel
+        await Notifications.setNotificationChannelAsync('default', {
+          name: 'Lecture Reminders',
+          description: 'Notifications for upcoming lectures and course updates',
+          importance: Notifications.AndroidImportance.HIGH,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: '#2563eb',
+          sound: 'default',
+          enableVibrate: true,
+          showBadge: true,
+        });
+        console.log('Android notification channel created successfully');
+      } else {
+        console.log('Android notification channel already exists');
+      }
+    } catch (error) {
+      console.error('Error creating Android notification channel:', error);
+    }
+  }
+};
 
 /**
  * Request notification permissions from the user
@@ -18,12 +64,45 @@ Notifications.setNotificationHandler({
  */
 export const requestNotificationPermissions = async () => {
   try {
+    // Create Android notification channel first (required for Android 8.0+)
+    await createNotificationChannel();
+    
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
 
     if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
+      // Request permissions with all required options for iOS (alert, badge, sound)
+      const { status } = await Notifications.requestPermissionsAsync({
+        ios: {
+          allowAlert: true,
+          allowBadge: true,
+          allowSound: true,
+          allowAnnouncements: false,
+        },
+      });
       finalStatus = status;
+    }
+
+    // For iOS, also verify that all permission types are granted
+    if (Platform.OS === 'ios' && finalStatus === 'granted') {
+      const permissions = await Notifications.getPermissionsAsync();
+      // Check if all iOS-specific permissions are granted
+      if (permissions.ios) {
+        const iosPerms = permissions.ios;
+        if (!iosPerms.allowAlert || !iosPerms.allowBadge || !iosPerms.allowSound) {
+          console.warn('Some iOS notification permissions not fully granted:', iosPerms);
+          // Request again with explicit options
+          const retryResult = await Notifications.requestPermissionsAsync({
+            ios: {
+              allowAlert: true,
+              allowBadge: true,
+              allowSound: true,
+              allowAnnouncements: false,
+            },
+          });
+          return retryResult.status === 'granted';
+        }
+      }
     }
 
     return finalStatus === 'granted';
@@ -192,6 +271,9 @@ export const removePushToken = async () => {
  */
 export const initializeNotifications = async (forceRegister = false) => {
   try {
+    // Create Android notification channel first (critical for Android 8.0+)
+    await createNotificationChannel();
+    
     const hasPermission = await requestNotificationPermissions();
     if (!hasPermission) {
       console.log('Notification permissions not granted');

@@ -34,6 +34,10 @@ const sendPushNotification = async (pushToken, title, body, data = {}) => {
       },
       priority: 'high',
       channelId: 'default',
+      // iOS-specific fields for proper notification display
+      badge: data.badge !== undefined ? data.badge : 1, // Set badge count (iOS)
+      subtitle: data.subtitle || undefined, // Optional subtitle for iOS
+      categoryId: data.categoryId || 'default', // Category identifier for iOS
     };
 
     // Send the notification
@@ -116,6 +120,10 @@ const sendBulkPushNotifications = async (notifications) => {
       },
       priority: 'high',
       channelId: 'default',
+      // iOS-specific fields for proper notification display
+      badge: notif.data?.badge !== undefined ? notif.data.badge : 1,
+      subtitle: notif.data?.subtitle || undefined,
+      categoryId: notif.data?.categoryId || 'default',
     }));
 
     // Send notifications in chunks

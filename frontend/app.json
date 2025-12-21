@@ -2,7 +2,7 @@
   "expo": {
     "name": "LectureLet",
     "slug": "LectureLet",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./assets/logo.png",
@@ -16,14 +16,29 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.LectureLet.app"
+      "bundleIdentifier": "com.LectureLet.app",
+      "buildNumber": "2",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "remote-notification"
+        ],
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/logo.png",
         "backgroundColor": "#6366f1"
       },
-      "package": "com.LectureLet.app"
+      "package": "com.LectureLet.app",
+      "permissions": [
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "com.android.alarm.permission.SET_ALARM"
+      ]
     },
     "web": {
       "favicon": "./assets/logo.png"
@@ -32,14 +47,17 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/notification-icon.png",
           "color": "#2563eb",
-          "sounds": []
+          "sounds": [],
+          "mode": "production",
+          "iosDisplayInForeground": true,
+          "androidMode": "default",
+          "androidCollapsedTitle": "#{unread_notifications} new notifications"
         }
       ]
     ],
     "extra": {
-      "apiUrl": "http://172.20.10.8:3000/api",
+      "apiUrl": "https://lecturelet.onrender.com/api",
       "PAYSTACK_PUBLIC_KEY": "pk_test_5fe292bf0df872407adaebe53b5982e173a45f44",
       "eas": {
         "projectId": "ea913b88-c870-4e26-90b7-87661d3890f0"

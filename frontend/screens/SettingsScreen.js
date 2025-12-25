@@ -32,6 +32,7 @@ const SettingsContent = ({ navigation }) => {
   const [userRole, setUserRole] = useState('');
   const [saving, setSaving] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   
   // Payment states
   const [showPayment, setShowPayment] = useState(false);
@@ -47,21 +48,42 @@ const SettingsContent = ({ navigation }) => {
 
   // Load user data on mount
   useEffect(() => {
+    loadAuthStatus();
     loadUserData();
   }, []);
 
   // Reload user data when screen comes into focus
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
+      loadAuthStatus();
       loadUserData();
     });
     return unsubscribe;
   }, [navigation]);
 
+  const loadAuthStatus = async () => {
+    try {
+      const token = await AsyncStorage.getItem('@auth_token');
+      setIsAuthenticated(!!token);
+    } catch (error) {
+      console.error('Error loading auth status:', error);
+      setIsAuthenticated(false);
+    }
+  };
+
   const loadUserData = async () => {
     try {
       const token = await AsyncStorage.getItem('@auth_token');
-      if (!token) return;
+      if (!token) {
+        // Guest mode - set defaults
+        setUserName('Guest');
+        setUserPhoneNumber('');
+        setUserRole('');
+        setNotificationsEnabled(false);
+        setReminderMinutes('15');
+        setPaymentStatus(false);
+        return;
+      }
 
       // Load from AsyncStorage first for quick display
       const userDataString = await AsyncStorage.getItem('@user_data');
@@ -113,6 +135,14 @@ const SettingsContent = ({ navigation }) => {
   };
 
   const handleSaveSettings = async () => {
+    if (!isAuthenticated) {
+      Alert.alert('Sign Up Required', 'Please sign up to save settings.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign Up', onPress: () => navigation.navigate('Signup') },
+      ]);
+      return;
+    }
+
     setSaving(true);
     try {
       const token = await AsyncStorage.getItem('@auth_token');
@@ -192,6 +222,14 @@ const SettingsContent = ({ navigation }) => {
   };
 
   const handleLogout = () => {
+    if (!isAuthenticated) {
+      Alert.alert('Sign Up Required', 'Please sign up to access account features.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign Up', onPress: () => navigation.navigate('Signup') },
+      ]);
+      return;
+    }
+
     Alert.alert(
       'Logout',
       'Are you sure you want to logout?',
@@ -212,7 +250,7 @@ const SettingsContent = ({ navigation }) => {
               // Reset navigation stack straight to LectureLet home (skip animation screen)
               navigation.reset({
                 index: 0,
-                routes: [{ name: 'CourseList' }],
+                routes: [{ name: 'StudentHome' }],
               });
             } catch (error) {
               console.error('Error during logout:', error);
@@ -226,6 +264,14 @@ const SettingsContent = ({ navigation }) => {
 
   // Payment initialization handler
   const handleInitializePayment = async () => {
+    if (!isAuthenticated) {
+      Alert.alert('Sign Up Required', 'Please sign up to make a payment.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign Up', onPress: () => navigation.navigate('Signup') },
+      ]);
+      return;
+    }
+
     // Check if Paystack is configured
     if (!PAYSTACK_PUBLIC_KEY) {
       Alert.alert(
@@ -488,6 +534,14 @@ const SettingsContent = ({ navigation }) => {
    * Handles feedback submission
    */
   const handleSubmitFeedback = async () => {
+    if (!isAuthenticated) {
+      Alert.alert('Sign Up Required', 'Please sign up to submit feedback.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign Up', onPress: () => navigation.navigate('Signup') },
+      ]);
+      return;
+    }
+
     if (feedbackMessage.trim().length < 10) {
       Alert.alert('Invalid Feedback', 'Please provide at least 10 characters of feedback.');
       return;
@@ -561,12 +615,16 @@ const SettingsContent = ({ navigation }) => {
         {/* User Header Card */}
         <View style={styles.profileCard}>
           <View style={styles.avatarCircle}>
-            <Text style={styles.avatarInitial}>{getInitial()}</Text>
+            <Text style={styles.avatarInitial}>{isAuthenticated ? getInitial() : 'G'}</Text>
           </View>
           <View style={styles.profileInfo}>
-            <Text style={styles.profileName}>{userName || 'User'}</Text>
-            <Text style={styles.profileEmail}>{userPhoneNumber || 'No phone number'}</Text>
-            <Text style={styles.profileRole}>{getRoleDisplayName(userRole)}</Text>
+            <Text style={styles.profileName}>{isAuthenticated ? (userName || 'User') : 'Guest'}</Text>
+            <Text style={styles.profileEmail}>
+              {isAuthenticated ? (userPhoneNumber || 'No phone number') : 'Preview mode - Sign up to continue'}
+            </Text>
+            <Text style={styles.profileRole}>
+              {isAuthenticated ? getRoleDisplayName(userRole) : 'Guest User'}
+            </Text>
           </View>
         </View>
 
@@ -574,7 +632,19 @@ const SettingsContent = ({ navigation }) => {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Account</Text>
 
-          <TouchableOpacity style={styles.settingItem} onPress={() => navigation.navigate('RoleSelect')}>
+          <TouchableOpacity 
+            style={styles.settingItem} 
+            onPress={() => {
+              if (isAuthenticated) {
+                navigation.navigate('RoleSelect');
+              } else {
+                Alert.alert('Sign Up Required', 'Please sign up to change your role.', [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Sign Up', onPress: () => navigation.navigate('Signup') },
+                ]);
+              }
+            }}
+          >
             <View style={styles.settingLeft}>
               <Ionicons name="person-outline" size={20} color="#6b7280" />
               <Text style={styles.settingLabel}>Change Role</Text>
@@ -599,9 +669,19 @@ const SettingsContent = ({ navigation }) => {
             </View>
             <Switch
               value={notificationsEnabled}
-              onValueChange={setNotificationsEnabled}
+              onValueChange={(value) => {
+                if (!isAuthenticated) {
+                  Alert.alert('Sign Up Required', 'Please sign up to enable notifications.', [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Sign Up', onPress: () => navigation.navigate('Signup') },
+                  ]);
+                } else {
+                  setNotificationsEnabled(value);
+                }
+              }}
               trackColor={{ false: '#d1d5db', true: '#22c55e' }}
               thumbColor="#ffffff"
+              disabled={!isAuthenticated}
             />
           </View>
 
@@ -617,13 +697,23 @@ const SettingsContent = ({ navigation }) => {
                 </View>
               </View>
               <TextInput
-                style={styles.reminderInput}
+                style={[styles.reminderInput, !isAuthenticated && styles.disabledInput]}
                 value={reminderMinutes}
-                onChangeText={setReminderMinutes}
+                onChangeText={(text) => {
+                  if (isAuthenticated) {
+                    setReminderMinutes(text);
+                  } else {
+                    Alert.alert('Sign Up Required', 'Please sign up to change reminder settings.', [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Sign Up', onPress: () => navigation.navigate('Signup') },
+                    ]);
+                  }
+                }}
                 keyboardType="numeric"
                 placeholder="15"
                 placeholderTextColor="#9ca3af"
                 maxLength={3}
+                editable={isAuthenticated}
               />
             </View>
           )}
@@ -658,6 +748,14 @@ const SettingsContent = ({ navigation }) => {
 
           {!paymentStatus && (
             <>
+              {!isAuthenticated && (
+                <View style={styles.guestPaymentPrompt}>
+                  <Ionicons name="information-circle-outline" size={20} color="#2563eb" />
+                  <Text style={styles.guestPaymentPromptText}>
+                    Sign up to make payments and enroll in courses
+                  </Text>
+                </View>
+              )}
               <View style={styles.settingItem}>
                 <View style={styles.settingLeft}>
                   <Ionicons name="card-outline" size={20} color="#6b7280" />
@@ -673,14 +771,19 @@ const SettingsContent = ({ navigation }) => {
               <View style={styles.paymentEmailContainer}>
                 <Text style={styles.paymentEmailLabel}>Email Address</Text>
                 <TextInput
-                  style={styles.paymentEmailInput}
+                  style={[styles.paymentEmailInput, !isAuthenticated && styles.disabledInput]}
                   value={paymentEmail}
-                  onChangeText={setPaymentEmail}
+                  onChangeText={(text) => {
+                    if (isAuthenticated) {
+                      setPaymentEmail(text);
+                    }
+                  }}
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
                   placeholder={userEmail || "Enter your email address"}
                   placeholderTextColor="#9ca3af"
+                  editable={isAuthenticated}
                 />
                 {userEmail && (
                   <Text style={styles.paymentEmailHint}>
@@ -690,9 +793,9 @@ const SettingsContent = ({ navigation }) => {
               </View>
 
               <TouchableOpacity
-                style={[styles.payButton, isProcessingPayment && styles.payButtonDisabled]}
+                style={[styles.payButton, (isProcessingPayment || !isAuthenticated) && styles.payButtonDisabled]}
                 onPress={handleInitializePayment}
-                disabled={isProcessingPayment}
+                disabled={isProcessingPayment || !isAuthenticated}
               >
                 {isProcessingPayment ? (
                   <ActivityIndicator size="small" color="#ffffff" />
@@ -731,7 +834,16 @@ const SettingsContent = ({ navigation }) => {
 
           <TouchableOpacity
             style={styles.settingItem}
-            onPress={() => setShowFeedbackModal(true)}
+            onPress={() => {
+              if (isAuthenticated) {
+                setShowFeedbackModal(true);
+              } else {
+                Alert.alert('Sign Up Required', 'Please sign up to submit feedback.', [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Sign Up', onPress: () => navigation.navigate('Signup') },
+                ]);
+              }
+            }}
           >
             <View style={styles.settingLeft}>
               <Ionicons name="chatbubble-ellipses-outline" size={20} color="#6b7280" />
@@ -747,18 +859,32 @@ const SettingsContent = ({ navigation }) => {
         </View>
 
         {/* Save Settings Button */}
-        <Button
-          title={saving ? "Saving..." : "Save Settings"}
-          onPress={handleSaveSettings}
-          variant="primary"
-          style={styles.saveButton}
-          disabled={saving}
-        />
+        {isAuthenticated ? (
+          <Button
+            title={saving ? "Saving..." : "Save Settings"}
+            onPress={handleSaveSettings}
+            variant="primary"
+            style={styles.saveButton}
+            disabled={saving}
+          />
+        ) : (
+          <View style={styles.guestPromptContainer}>
+            <Text style={styles.guestPromptText}>Sign up to save settings and access all features</Text>
+            <Button
+              title="Sign Up"
+              onPress={() => navigation.navigate('Signup')}
+              variant="primary"
+              style={styles.signUpButton}
+            />
+          </View>
+        )}
 
         {/* Logout Button + Version */}
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
+        {isAuthenticated && (
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+            <Text style={styles.logoutText}>Logout</Text>
+          </TouchableOpacity>
+        )}
 
         <Text style={styles.versionText}>Version 1.0.0</Text>
       </ScrollView>
@@ -1435,6 +1561,45 @@ const styles = StyleSheet.create({
   },
   feedbackButtonDisabled: {
     opacity: 0.5,
+  },
+  disabledInput: {
+    backgroundColor: '#f3f4f6',
+    opacity: 0.6,
+  },
+  guestPromptContainer: {
+    marginTop: 24,
+    marginHorizontal: 20,
+    padding: 20,
+    backgroundColor: '#eff6ff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    alignItems: 'center',
+  },
+  guestPromptText: {
+    fontSize: 14,
+    color: '#1e40af',
+    textAlign: 'center',
+    marginBottom: 16,
+    fontWeight: '500',
+  },
+  signUpButton: {
+    minWidth: 200,
+  },
+  guestPaymentPrompt: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#eff6ff',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+    gap: 8,
+  },
+  guestPaymentPromptText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#1e40af',
+    fontWeight: '500',
   },
 });
 

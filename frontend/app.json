@@ -5,9 +5,9 @@
     "version": "1.0.1",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "icon": "./assets/logo.png",
+    "icon": "./assets/logo-1.png",
     "splash": {
-      "image": "./assets/logo.png",
+      "image": "./assets/logo-1.png",
       "resizeMode": "contain",
       "backgroundColor": "#6366f1"
     },
@@ -15,7 +15,7 @@
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "com.LectureLet.app",
       "buildNumber": "2",
       "infoPlist": {
@@ -30,7 +30,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/logo.png",
+        "foregroundImage": "./assets/logo-1.png",
         "backgroundColor": "#6366f1"
       },
       "package": "com.LectureLet.app",
@@ -41,7 +41,7 @@
       ]
     },
     "web": {
-      "favicon": "./assets/logo.png"
+      "favicon": "./assets/logo-1.png"
     },
     "plugins": [
       [
@@ -57,7 +57,9 @@
       ]
     ],
     "extra": {
-      "apiUrl": "https://lecturelet.onrender.com/api",
+      "apiUrl": "http://10.22.21.72:3000/api",
+      // "apiUrl": "https://lecturelet.onrender.com/api",
+
       "PAYSTACK_PUBLIC_KEY": "pk_test_5fe292bf0df872407adaebe53b5982e173a45f44",
       "eas": {
         "projectId": "ea913b88-c870-4e26-90b7-87661d3890f0"

@@ -27,6 +27,7 @@ const StudentAddCourseScreen = ({ navigation }) => {
   const [enrolling, setEnrolling] = useState(false);
   const [error, setError] = useState('');
   const [hasPaid, setHasPaid] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   const formatDays = (days) => {
     if (!days || !Array.isArray(days)) return 'N/A';
@@ -38,14 +39,26 @@ const StudentAddCourseScreen = ({ navigation }) => {
     return `${startTime} - ${endTime}`;
   };
 
-  // Load payment status on mount and when screen comes into focus
+  // Load auth and payment status on mount and when screen comes into focus
   useEffect(() => {
+    loadAuthStatus();
     loadPaymentStatus();
     const unsubscribe = navigation.addListener('focus', () => {
+      loadAuthStatus();
       loadPaymentStatus();
     });
     return unsubscribe;
   }, [navigation]);
+
+  const loadAuthStatus = async () => {
+    try {
+      const token = await AsyncStorage.getItem('@auth_token');
+      setIsAuthenticated(!!token);
+    } catch (error) {
+      console.error('Error loading auth status:', error);
+      setIsAuthenticated(false);
+    }
+  };
 
   const loadPaymentStatus = async () => {
     try {
@@ -72,16 +85,18 @@ const StudentAddCourseScreen = ({ navigation }) => {
 
     try {
       const token = await AsyncStorage.getItem('@auth_token');
-      if (!token) {
-        throw new Error('Not authenticated. Please log in again.');
+      const headers = {
+        'Content-Type': 'application/json',
+      };
+      
+      // Add auth header only if token exists (for guest preview)
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
       }
 
       const response = await fetch(getApiUrl(`courses/code/${uniqueCode.trim().toUpperCase()}`), {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
+        headers,
       });
 
       const data = await response.json();
@@ -114,6 +129,25 @@ const StudentAddCourseScreen = ({ navigation }) => {
 
   const handleEnroll = async () => {
     if (!course || !uniqueCode.trim()) {
+      return;
+    }
+
+    // Check if user is authenticated (guest mode check)
+    if (!isAuthenticated) {
+      Alert.alert(
+        'Sign Up Required',
+        'You need to create an account to enroll in courses. Would you like to sign up now?',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+          {
+            text: 'Sign Up',
+            onPress: () => navigation.navigate('Signup'),
+          },
+        ]
+      );
       return;
     }
 
@@ -327,7 +361,9 @@ const StudentAddCourseScreen = ({ navigation }) => {
               )}
               <Button
                 title={
-                  enrolling
+                  !isAuthenticated
+                    ? 'Sign Up to Enroll'
+                    : enrolling
                     ? 'Enrolling...'
                     : isEnrolled
                     ? 'Already Enrolled'
@@ -335,8 +371,8 @@ const StudentAddCourseScreen = ({ navigation }) => {
                     ? 'Payment Required'
                     : 'Enroll in Course'
                 }
-                onPress={!hasPaid ? () => navigation.navigate('Settings') : handleEnroll}
-                variant={!hasPaid ? 'secondary' : 'primary'}
+                onPress={!isAuthenticated ? () => navigation.navigate('Signup') : !hasPaid ? () => navigation.navigate('Settings') : handleEnroll}
+                variant={!isAuthenticated || !hasPaid ? 'secondary' : 'primary'}
                 style={styles.enrollButton}
                 disabled={enrolling || isEnrolled}
               />

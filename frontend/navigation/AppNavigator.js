@@ -45,11 +45,13 @@ const AppNavigator = () => {
           // Default to student home if logged in but no role set
           setInitialRoute('StudentHome');
         } else {
-          setInitialRoute('Welcome');
+          // Navigate to StudentHome even for guests (guest mode)
+          setInitialRoute('StudentHome');
         }
       } catch (err) {
         console.error('Error determining initial route:', err);
-        setInitialRoute('Welcome');
+        // Default to StudentHome even on error (guest mode)
+        setInitialRoute('StudentHome');
       }
     };
 

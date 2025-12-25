@@ -8,6 +8,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Platform,
+  Alert,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -17,16 +18,18 @@ import Button from '../components/Button';
 import { useUnreadNotifications } from '../hooks/useUnreadNotifications';
 
 const StudentHomeScreen = ({ navigation }) => {
-  const [userName, setUserName] = useState('Student');
+  const [userName, setUserName] = useState('Guest');
   const [enrolledCourses, setEnrolledCourses] = useState([]);
   const [todaySchedule, setTodaySchedule] = useState([]);
   const [upcomingQuizzes, setUpcomingQuizzes] = useState([]);
   const [loadingQuizzes, setLoadingQuizzes] = useState(false);
   const { unreadCount } = useUnreadNotifications(navigation);
   const [loading, setLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   // Load user data and schedule on mount
   useEffect(() => {
+    loadAuthStatus();
     loadUserData();
     loadTodaySchedule();
     loadUpcomingQuizzes();
@@ -35,23 +38,46 @@ const StudentHomeScreen = ({ navigation }) => {
   // Reload schedule when screen comes into focus
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
+      loadAuthStatus();
+      loadUserData();
       loadTodaySchedule();
       loadUpcomingQuizzes();
     });
     return unsubscribe;
   }, [navigation]);
 
+  const loadAuthStatus = async () => {
+    try {
+      const token = await AsyncStorage.getItem('@auth_token');
+      setIsAuthenticated(!!token);
+    } catch (error) {
+      console.error('Error loading auth status:', error);
+      setIsAuthenticated(false);
+    }
+  };
+
   const loadUserData = async () => {
     try {
+      const token = await AsyncStorage.getItem('@auth_token');
+      if (!token) {
+        setUserName('Guest');
+        return;
+      }
+      
       const userDataString = await AsyncStorage.getItem('@user_data');
       if (userDataString) {
         const userData = JSON.parse(userDataString);
         if (userData.full_name) {
           setUserName(userData.full_name);
+        } else {
+          setUserName('Student');
         }
+      } else {
+        setUserName('Student');
       }
     } catch (error) {
       console.error('Error loading user data:', error);
+      setUserName('Guest');
     }
   };
 
@@ -59,6 +85,8 @@ const StudentHomeScreen = ({ navigation }) => {
     try {
       const token = await AsyncStorage.getItem('@auth_token');
       if (!token) {
+        setTodaySchedule([]);
+        setEnrolledCourses([]);
         setLoading(false);
         return;
       }
@@ -181,6 +209,7 @@ const StudentHomeScreen = ({ navigation }) => {
       setLoadingQuizzes(true);
       const token = await AsyncStorage.getItem('@auth_token');
       if (!token) {
+        setUpcomingQuizzes([]);
         setLoadingQuizzes(false);
         return;
       }
@@ -268,7 +297,15 @@ const StudentHomeScreen = ({ navigation }) => {
         <View style={styles.greetingRow}>
           <View style={styles.greetingLeft}>
             <Text style={styles.greeting}>Hello, {userName}</Text>
-            <Text style={styles.roleText}>Student</Text>
+            <Text style={styles.roleText}>{isAuthenticated ? 'Student' : 'Guest'}</Text>
+            {!isAuthenticated && (
+              <TouchableOpacity
+                style={styles.signUpPrompt}
+                onPress={() => navigation.navigate('Signup')}
+              >
+                <Text style={styles.signUpPromptText}>Sign up to access all features</Text>
+              </TouchableOpacity>
+            )}
             <View style={styles.dateRow}>
               <Ionicons name="calendar-outline" size={16} color="#2563eb" style={styles.calendarIcon} />
               <Text style={styles.dateText}>{getCurrentDate()}</Text>
@@ -285,7 +322,16 @@ const StudentHomeScreen = ({ navigation }) => {
         {/* Timetable Quick Access */}
         <TouchableOpacity
           style={styles.timetableCard}
-          onPress={() => navigation.navigate('StudentTimetable')}
+          onPress={() => {
+            if (isAuthenticated) {
+              navigation.navigate('StudentTimetable');
+            } else {
+              Alert.alert('Sign Up Required', 'Please sign up to view your timetable.', [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Sign Up', onPress: () => navigation.navigate('Signup') },
+              ]);
+            }
+          }}
           activeOpacity={0.8}
         >
           <View style={styles.timetableCardContent}>
@@ -353,7 +399,16 @@ const StudentHomeScreen = ({ navigation }) => {
             {upcomingQuizzes.length > 3 && (
               <TouchableOpacity
                 style={styles.viewMoreButton}
-                onPress={() => navigation.navigate('StudentCourses')}
+                onPress={() => {
+                  if (isAuthenticated) {
+                    navigation.navigate('StudentCourses');
+                  } else {
+                    Alert.alert('Sign Up Required', 'Please sign up to view all quizzes.', [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Sign Up', onPress: () => navigation.navigate('Signup') },
+                    ]);
+                  }
+                }}
               >
                 <Text style={styles.viewMoreText}>View All {upcomingQuizzes.length} Quizzes</Text>
                 <Ionicons name="chevron-forward" size={16} color="#2563eb" />
@@ -368,7 +423,16 @@ const StudentHomeScreen = ({ navigation }) => {
             <Text style={styles.sectionTitle}>Today's Schedule</Text>
             <Text style={styles.dayName}>{getCurrentDayName()}</Text>
           </View>
-          <TouchableOpacity onPress={() => navigation.navigate('StudentTimetable')}>
+          <TouchableOpacity onPress={() => {
+            if (isAuthenticated) {
+              navigation.navigate('StudentTimetable');
+            } else {
+              Alert.alert('Sign Up Required', 'Please sign up to view your full timetable.', [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Sign Up', onPress: () => navigation.navigate('Signup') },
+              ]);
+            }
+          }}>
             <Text style={styles.seeAllText}>See All</Text>
           </TouchableOpacity>
         </View>
@@ -472,18 +536,34 @@ const StudentHomeScreen = ({ navigation }) => {
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.navItem}
-          onPress={() => navigation.navigate('StudentCourses')}
+          onPress={() => {
+            if (isAuthenticated) {
+              navigation.navigate('StudentCourses');
+            } else {
+              // Allow guests to view courses (they can search and preview)
+              navigation.navigate('StudentCourses');
+            }
+          }}
         >
           <Ionicons name="book-outline" size={24} color="#6b7280" />
           <Text style={styles.navLabel}>Courses</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.navItem}
-          onPress={() => navigation.navigate('Notifications')}
+          onPress={() => {
+            if (isAuthenticated) {
+              navigation.navigate('Notifications');
+            } else {
+              Alert.alert('Sign Up Required', 'Please sign up to access notifications.', [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Sign Up', onPress: () => navigation.navigate('Signup') },
+              ]);
+            }
+          }}
         >
           <View style={styles.navIconContainer}>
             <Ionicons name="notifications-outline" size={24} color="#6b7280" />
-            {unreadCount > 0 && (
+            {isAuthenticated && unreadCount > 0 && (
               <View style={styles.navBadgeContainer}>
                 <Text style={styles.navBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
               </View>
@@ -981,6 +1061,20 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#2563eb',
     marginRight: 4,
+  },
+  signUpPrompt: {
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#dbeafe',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#93c5fd',
+  },
+  signUpPromptText: {
+    fontSize: 12,
+    color: '#2563eb',
+    fontWeight: '600',
   },
 });
 

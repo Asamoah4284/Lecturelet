@@ -1,7 +1,7 @@
 const express = require('express');
 const { body, param, query } = require('express-validator');
 const { Course, Enrollment, Notification, User } = require('../models');
-const { authenticate, authorize } = require('../middleware/auth');
+const { authenticate, authorize, optionalAuth } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const { sendBulkPushNotifications } = require('../utils/pushNotificationService');
 const { sendBulkSMS } = require('../utils/smsService');
@@ -160,11 +160,11 @@ router.get(
 /**
  * @route   GET /api/courses/search
  * @desc    Search courses by name, code, or rep name
- * @access  Private
+ * @access  Public (optional auth for guest preview)
  */
 router.get(
   '/search',
-  authenticate,
+  optionalAuth,
   [
     query('q')
       .trim()
@@ -209,11 +209,11 @@ router.get(
 /**
  * @route   GET /api/courses/code/:uniqueCode
  * @desc    Get course by unique code
- * @access  Private
+ * @access  Public (optional auth for guest preview)
  */
 router.get(
   '/code/:uniqueCode',
-  authenticate,
+  optionalAuth,
   [
     param('uniqueCode')
       .trim()
@@ -223,6 +223,9 @@ router.get(
   validate,
   async (req, res) => {
     try {
+      // Log for debugging - can be removed later
+      console.log('Course code lookup - isAuthenticated:', !!req.user, 'code:', req.params.uniqueCode);
+      
       const course = await Course.findByUniqueCode(req.params.uniqueCode);
 
       if (!course) {
@@ -232,8 +235,11 @@ router.get(
         });
       }
 
-      // Check if user is enrolled
-      const isEnrolled = await Enrollment.isEnrolled(req.user.id, course._id);
+      // Check if user is enrolled (only if authenticated)
+      let isEnrolled = false;
+      if (req.user && req.user.id) {
+        isEnrolled = await Enrollment.isEnrolled(req.user.id, course._id);
+      }
       const studentCount = await Enrollment.getCount(course._id);
 
       res.json({

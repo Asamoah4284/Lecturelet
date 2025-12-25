@@ -28,26 +28,44 @@ const StudentCoursesScreen = ({ navigation }) => {
   const [quizzes, setQuizzes] = useState([]);
   const [tutorials, setTutorials] = useState([]);
   const [assignments, setAssignments] = useState([]);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   // Load courses on mount
   useEffect(() => {
+    loadAuthStatus();
     loadCourses();
   }, []);
 
   // Reload courses when screen comes into focus
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
+      loadAuthStatus();
       loadCourses();
     });
     return unsubscribe;
   }, [navigation]);
 
+  const loadAuthStatus = async () => {
+    try {
+      const token = await AsyncStorage.getItem('@auth_token');
+      setIsAuthenticated(!!token);
+    } catch (error) {
+      console.error('Error loading auth status:', error);
+      setIsAuthenticated(false);
+    }
+  };
+
   const loadCourses = async () => {
     try {
       const token = await AsyncStorage.getItem('@auth_token');
       if (!token) {
+        // Guest mode - show empty state but allow searching
+        setEnrolledCourses([]);
+        setQuizzes([]);
+        setTutorials([]);
+        setAssignments([]);
         setLoading(false);
-        setError('Not authenticated. Please log in again.');
+        setError('');
         return;
       }
 
@@ -228,6 +246,14 @@ const StudentCoursesScreen = ({ navigation }) => {
   };
 
   const handleUnenroll = (course) => {
+    if (!isAuthenticated) {
+      Alert.alert('Sign Up Required', 'Please sign up to manage your courses.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign Up', onPress: () => navigation.navigate('Signup') },
+      ]);
+      return;
+    }
+
     const courseName = course.course_name || course.courseName || 'this course';
     const courseId = course.id || course._id;
 
@@ -569,6 +595,24 @@ const StudentCoursesScreen = ({ navigation }) => {
               </View>
             )}
           </View>
+        ) : !isAuthenticated ? (
+          <View style={styles.emptyState}>
+            <View style={styles.emptyIconContainer}>
+              <View style={styles.documentIcon}>
+                <Ionicons name="search-outline" size={60} color="#ffffff" />
+              </View>
+            </View>
+            <Text style={styles.emptyTitle}>Preview Mode</Text>
+            <Text style={styles.emptyDescription}>
+              You're browsing as a guest. Search for courses and preview them, but sign up to enroll and access all features.
+            </Text>
+            <Button
+              title="Sign Up"
+              onPress={() => navigation.navigate('Signup')}
+              variant="primary"
+              style={styles.addCourseButton}
+            />
+          </View>
         ) : filteredCourses.length > 0 ? (
           <View style={styles.coursesList}>
             {filteredCourses.map((course) => {
@@ -686,7 +730,16 @@ const StudentCoursesScreen = ({ navigation }) => {
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.navItem}
-          onPress={() => navigation.navigate('Notifications')}
+          onPress={() => {
+            if (isAuthenticated) {
+              navigation.navigate('Notifications');
+            } else {
+              Alert.alert('Sign Up Required', 'Please sign up to access notifications.', [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Sign Up', onPress: () => navigation.navigate('Signup') },
+              ]);
+            }
+          }}
         >
           <Ionicons name="notifications-outline" size={24} color="#6b7280" />
           <Text style={styles.navLabel}>Notifications</Text>

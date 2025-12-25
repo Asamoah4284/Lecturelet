@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
+  Modal,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +18,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApiUrl } from '../config/api';
 import Button from '../components/Button';
 import { initializeNotifications } from '../services/notificationService';
+import { getTrialStatus, hasActiveAccess } from '../utils/trialHelpers';
 
 const StudentAddCourseScreen = ({ navigation }) => {
   const [uniqueCode, setUniqueCode] = useState('');
@@ -28,6 +30,9 @@ const StudentAddCourseScreen = ({ navigation }) => {
   const [error, setError] = useState('');
   const [hasPaid, setHasPaid] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [trialStatus, setTrialStatus] = useState(null);
+  const [enrollmentCount, setEnrollmentCount] = useState(0);
+  const [showTrialInfoModal, setShowTrialInfoModal] = useState(false);
 
   const formatDays = (days) => {
     if (!days || !Array.isArray(days)) return 'N/A';
@@ -42,10 +47,12 @@ const StudentAddCourseScreen = ({ navigation }) => {
   // Load auth and payment status on mount and when screen comes into focus
   useEffect(() => {
     loadAuthStatus();
-    loadPaymentStatus();
+    loadUserData();
+    loadEnrollmentCount();
     const unsubscribe = navigation.addListener('focus', () => {
       loadAuthStatus();
-      loadPaymentStatus();
+      loadUserData();
+      loadEnrollmentCount();
     });
     return unsubscribe;
   }, [navigation]);
@@ -60,15 +67,47 @@ const StudentAddCourseScreen = ({ navigation }) => {
     }
   };
 
-  const loadPaymentStatus = async () => {
+  const loadUserData = async () => {
     try {
       const userDataString = await AsyncStorage.getItem('@user_data');
       if (userDataString) {
         const userData = JSON.parse(userDataString);
         setHasPaid(userData.payment_status === true);
+        const status = getTrialStatus(userData);
+        setTrialStatus(status);
+      } else {
+        setTrialStatus(null);
       }
     } catch (error) {
-      console.error('Error loading payment status:', error);
+      console.error('Error loading user data:', error);
+      setTrialStatus(null);
+    }
+  };
+
+  const loadEnrollmentCount = async () => {
+    try {
+      const token = await AsyncStorage.getItem('@auth_token');
+      if (!token) {
+        setEnrollmentCount(0);
+        return;
+      }
+
+      const response = await fetch(getApiUrl('enrollments/my-courses'), {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setEnrollmentCount(data.data.courses?.length || 0);
+      } else {
+        setEnrollmentCount(0);
+      }
+    } catch (error) {
+      console.error('Error loading enrollment count:', error);
+      setEnrollmentCount(0);
     }
   };
 
@@ -151,24 +190,39 @@ const StudentAddCourseScreen = ({ navigation }) => {
       return;
     }
 
-    // Check payment status before enrolling
-    if (!hasPaid) {
+    // Check if user has active access (payment OR active trial)
+    const userDataString = await AsyncStorage.getItem('@user_data');
+    let userData = null;
+    if (userDataString) {
+      userData = JSON.parse(userDataString);
+    }
+
+    const hasAccess = hasActiveAccess(
+      userData?.payment_status || false,
+      userData?.trial_end_date
+    );
+
+    // If no access and has enrollments, trial expired - require payment
+    if (!hasAccess && enrollmentCount > 0) {
       Alert.alert(
-        'Payment Required',
-        'You need to make a payment before you can enroll in courses. Please go to Settings to make a payment.',
+        'Trial Expired',
+        'Your 7-day free trial has ended. Please make a payment to continue enrolling in courses and receiving notifications.',
         [
           {
             text: 'Cancel',
             style: 'cancel',
           },
           {
-            text: 'Go to Settings',
+            text: 'Make Payment',
             onPress: () => navigation.navigate('Settings'),
           },
         ]
       );
       return;
     }
+
+    // If no access and no enrollments, trial will start automatically on enrollment
+    // (handled by backend)
 
     setEnrolling(true);
     setError('');
@@ -204,6 +258,26 @@ const StudentAddCourseScreen = ({ navigation }) => {
       if (data.success) {
         // Register push token after successful enrollment
         await initializeNotifications();
+        
+        // Reload user data to get updated trial status
+        if (data.data?.trial?.started) {
+          // Fetch updated user profile
+          try {
+            const profileResponse = await fetch(getApiUrl('auth/profile'), {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+              },
+            });
+            const profileData = await profileResponse.json();
+            if (profileData.success && profileData.data?.user) {
+              await AsyncStorage.setItem('@user_data', JSON.stringify(profileData.data.user));
+              loadUserData();
+            }
+          } catch (err) {
+            console.error('Error updating user data:', err);
+          }
+        }
         
         Alert.alert(
           'Success',
@@ -290,19 +364,7 @@ const StudentAddCourseScreen = ({ navigation }) => {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Course Details</Text>
             <View style={styles.courseCard}>
-              <View style={[styles.courseContent, !hasPaid && styles.courseContentBlurred]}>
-                {/* Blur overlay when not paid - only covers course details */}
-                {!hasPaid && (
-                  <View style={styles.blurOverlay}>
-                    <View style={styles.blurMessageContainer}>
-                      <Ionicons name="lock-closed" size={32} color="#6b7280" />
-                      <Text style={styles.blurMessageTitle}>Payment Required</Text>
-                      <Text style={styles.blurMessageText}>
-                        Make a payment to view full course details and enroll
-                      </Text>
-                    </View>
-                  </View>
-                )}
+              <View style={styles.courseContent}>
                 <View style={styles.courseHeader}>
                   <View style={styles.courseIconContainer}>
                     <Ionicons name="book" size={24} color="#2563eb" />
@@ -348,17 +410,35 @@ const StudentAddCourseScreen = ({ navigation }) => {
                   </View>
                 </View>
               </View>
-              {!hasPaid && (
+              {/* Trial or Payment Message */}
+              {!isAuthenticated ? null : !hasActiveAccess(hasPaid, trialStatus?.trialEndDate) && enrollmentCount > 0 ? (
                 <View style={styles.paymentMessageContainer}>
                   <Ionicons name="alert-circle-outline" size={20} color="#f59e0b" />
                   <View style={styles.paymentMessageTextContainer}>
-                    <Text style={styles.paymentMessageTitle}>Payment Required</Text>
+                    <Text style={styles.paymentMessageTitle}>Trial Expired</Text>
                     <Text style={styles.paymentMessageText}>
-                      You need to make a payment before you can enroll in courses.
+                      Your 7-day free trial has ended. Make a payment to continue enrolling and receiving notifications.
                     </Text>
                   </View>
                 </View>
-              )}
+              ) : !hasActiveAccess(hasPaid, trialStatus?.trialEndDate) && enrollmentCount === 0 ? (
+                <View style={styles.trialMessageContainer}>
+                  <Ionicons name="gift-outline" size={20} color="#2563eb" />
+                  <View style={styles.trialMessageTextContainer}>
+                    <Text style={styles.trialMessageTitle}>Start Your 7-Day Free Trial</Text>
+                    <Text style={styles.trialMessageText}>
+                      Enroll now to start your free trial. After 7 days, payment is required to continue receiving notifications.
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.trialInfoLink}
+                      onPress={() => setShowTrialInfoModal(true)}
+                    >
+                      <Text style={styles.trialInfoLinkText}>Learn more about the trial</Text>
+                      <Ionicons name="chevron-forward" size={16} color="#2563eb" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : null}
               <Button
                 title={
                   !isAuthenticated
@@ -367,12 +447,24 @@ const StudentAddCourseScreen = ({ navigation }) => {
                     ? 'Enrolling...'
                     : isEnrolled
                     ? 'Already Enrolled'
-                    : !hasPaid
+                    : !hasActiveAccess(hasPaid, trialStatus?.trialEndDate) && enrollmentCount === 0
+                    ? 'Start Your 7-Day Free Trial'
+                    : !hasActiveAccess(hasPaid, trialStatus?.trialEndDate) && enrollmentCount > 0
                     ? 'Payment Required'
                     : 'Enroll in Course'
                 }
-                onPress={!isAuthenticated ? () => navigation.navigate('Signup') : !hasPaid ? () => navigation.navigate('Settings') : handleEnroll}
-                variant={!isAuthenticated || !hasPaid ? 'secondary' : 'primary'}
+                onPress={
+                  !isAuthenticated
+                    ? () => navigation.navigate('Signup')
+                    : !hasActiveAccess(hasPaid, trialStatus?.trialEndDate) && enrollmentCount > 0
+                    ? () => navigation.navigate('Settings')
+                    : handleEnroll
+                }
+                variant={
+                  !isAuthenticated || (!hasActiveAccess(hasPaid, trialStatus?.trialEndDate) && enrollmentCount > 0)
+                    ? 'secondary'
+                    : 'primary'
+                }
                 style={styles.enrollButton}
                 disabled={enrolling || isEnrolled}
               />
@@ -383,6 +475,90 @@ const StudentAddCourseScreen = ({ navigation }) => {
   
       </ScrollView>
 
+      {/* Trial Info Modal */}
+      <Modal
+        visible={showTrialInfoModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowTrialInfoModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>7-Day Free Trial</Text>
+              <TouchableOpacity
+                onPress={() => setShowTrialInfoModal(false)}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={24} color="#6b7280" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalBody}>
+              <View style={styles.trialInfoSection}>
+                <View style={styles.trialInfoIconContainer}>
+                  <Ionicons name="gift" size={48} color="#2563eb" />
+                </View>
+                <Text style={styles.trialInfoHeading}>What's Included</Text>
+                <Text style={styles.trialInfoText}>
+                  Your 7-day free trial gives you full access to:
+                </Text>
+                <View style={styles.trialFeaturesList}>
+                  <View style={styles.trialFeatureItem}>
+                    <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
+                    <Text style={styles.trialFeatureText}>Enroll in unlimited courses</Text>
+                  </View>
+                  <View style={styles.trialFeatureItem}>
+                    <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
+                    <Text style={styles.trialFeatureText}>Receive push notifications</Text>
+                  </View>
+                  <View style={styles.trialFeatureItem}>
+                    <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
+                    <Text style={styles.trialFeatureText}>Access all course materials</Text>
+                  </View>
+                  <View style={styles.trialFeatureItem}>
+                    <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
+                    <Text style={styles.trialFeatureText}>View schedules and timetables</Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.trialInfoSection}>
+                <Text style={styles.trialInfoHeading}>After 7 Days</Text>
+                <Text style={styles.trialInfoText}>
+                  Once your trial ends, you'll need to make a payment (GH₵20) to continue:
+                </Text>
+                <View style={styles.trialWarningList}>
+                  <View style={styles.trialWarningItem}>
+                    <Ionicons name="notifications-off" size={20} color="#f59e0b" />
+                    <Text style={styles.trialWarningText}>Notifications will stop</Text>
+                  </View>
+                  <View style={styles.trialWarningItem}>
+                    <Ionicons name="lock-closed" size={20} color="#f59e0b" />
+                    <Text style={styles.trialWarningText}>Home screen will be locked</Text>
+                  </View>
+                  <View style={styles.trialWarningItem}>
+                    <Ionicons name="ban" size={20} color="#f59e0b" />
+                    <Text style={styles.trialWarningText}>Cannot enroll in new courses</Text>
+                  </View>
+                </View>
+                <Text style={styles.trialInfoNote}>
+                  Make a payment before your trial ends to avoid any interruption in service.
+                </Text>
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalFooter}>
+              <Button
+                title="Got It"
+                onPress={() => setShowTrialInfoModal(false)}
+                variant="primary"
+                style={styles.modalButton}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -667,6 +843,139 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     textAlign: 'center',
     lineHeight: 18,
+  },
+  trialMessageContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#93c5fd',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  trialMessageTextContainer: {
+    flex: 1,
+  },
+  trialMessageTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1e40af',
+    marginBottom: 4,
+  },
+  trialMessageText: {
+    fontSize: 12,
+    color: '#1e3a8a',
+    lineHeight: 16,
+    marginBottom: 8,
+  },
+  trialInfoLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  trialInfoLinkText: {
+    fontSize: 12,
+    color: '#2563eb',
+    fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    width: '100%',
+    maxHeight: '80%',
+    overflow: 'hidden',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  modalCloseButton: {
+    padding: 4,
+  },
+  modalBody: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  trialInfoSection: {
+    marginBottom: 24,
+  },
+  trialInfoIconContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  trialInfoHeading: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  trialInfoText: {
+    fontSize: 14,
+    color: '#6b7280',
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  trialFeaturesList: {
+    gap: 10,
+    marginBottom: 8,
+  },
+  trialFeatureItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  trialFeatureText: {
+    fontSize: 14,
+    color: '#374151',
+    flex: 1,
+  },
+  trialWarningList: {
+    gap: 10,
+    marginBottom: 12,
+  },
+  trialWarningItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  trialWarningText: {
+    fontSize: 14,
+    color: '#92400e',
+    flex: 1,
+  },
+  trialInfoNote: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontStyle: 'italic',
+    marginTop: 8,
+  },
+  modalFooter: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+  },
+  modalButton: {
+    width: '100%',
   },
 });
 

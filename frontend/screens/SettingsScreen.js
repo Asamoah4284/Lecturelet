@@ -21,6 +21,7 @@ import Button from '../components/Button';
 import { getApiUrl, PAYSTACK_PUBLIC_KEY } from '../config/api';
 import { initializeNotifications, removePushToken } from '../services/notificationService';
 import { syncAndScheduleReminders, cancelAllReminders } from '../services/localReminderService';
+import { getTrialStatus } from '../utils/trialHelpers';
 
 const SettingsContent = ({ navigation }) => {
   const webViewRef = useRef(null);
@@ -33,6 +34,7 @@ const SettingsContent = ({ navigation }) => {
   const [saving, setSaving] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [trialStatus, setTrialStatus] = useState(null);
   
   // Payment states
   const [showPayment, setShowPayment] = useState(false);
@@ -110,6 +112,9 @@ const SettingsContent = ({ navigation }) => {
         if (userData.payment_status !== undefined) {
           setPaymentStatus(userData.payment_status);
         }
+        // Load trial status
+        const status = getTrialStatus(userData);
+        setTrialStatus(status);
       }
 
       // Fetch latest from backend
@@ -126,7 +131,10 @@ const SettingsContent = ({ navigation }) => {
         setNotificationsEnabled(user.notifications_enabled ?? true);
         setReminderMinutes(String(user.reminder_minutes ?? 15));
         setPaymentStatus(user.payment_status ?? false);
-        // Update AsyncStorage with latest user data including payment status
+        // Update trial status
+        const status = getTrialStatus(user);
+        setTrialStatus(status);
+        // Update AsyncStorage with latest user data including payment status and trial info
         await AsyncStorage.setItem('@user_data', JSON.stringify(user));
       }
     } catch (error) {
@@ -723,18 +731,38 @@ const SettingsContent = ({ navigation }) => {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Payment</Text>
 
-          {/* Payment Status */}
+          {/* Payment/Trial Status */}
           <View style={styles.settingItem}>
             <View style={styles.settingLeft}>
               <Ionicons 
-                name={paymentStatus ? "checkmark-circle" : "alert-circle"} 
+                name={
+                  paymentStatus 
+                    ? "checkmark-circle" 
+                    : trialStatus?.isActive 
+                    ? "gift" 
+                    : "alert-circle"
+                } 
                 size={20} 
-                color={paymentStatus ? "#22c55e" : "#f59e0b"} 
+                color={
+                  paymentStatus 
+                    ? "#22c55e" 
+                    : trialStatus?.isActive 
+                    ? "#2563eb" 
+                    : "#f59e0b"
+                } 
               />
               <View style={styles.settingInfo}>
-                <Text style={styles.settingLabel}>Payment Status</Text>
+                <Text style={styles.settingLabel}>
+                  {paymentStatus ? 'Payment Status' : trialStatus?.isActive ? 'Free Trial Status' : 'Payment Status'}
+                </Text>
                 <Text style={[styles.settingDescription, paymentStatus && styles.paymentStatusPaid]}>
-                  {paymentStatus ? 'Paid' : 'Not Paid - Payment required for course enrollment'}
+                  {paymentStatus 
+                    ? 'Paid' 
+                    : trialStatus?.isActive 
+                    ? `Free Trial Active - ${trialStatus.daysRemaining} ${trialStatus.daysRemaining === 1 ? 'day' : 'days'} remaining`
+                    : trialStatus?.isExpired
+                    ? 'Trial Expired - Payment required to continue'
+                    : 'Not Paid - Payment required for course enrollment'}
                 </Text>
               </View>
             </View>
@@ -744,7 +772,62 @@ const SettingsContent = ({ navigation }) => {
                 <Text style={styles.paidBadgeText}>Paid</Text>
               </View>
             )}
+            {!paymentStatus && trialStatus?.isActive && (
+              <View style={styles.trialBadge}>
+                <Ionicons name="gift" size={16} color="#ffffff" />
+                <Text style={styles.trialBadgeText}>Trial</Text>
+              </View>
+            )}
           </View>
+
+          {/* Trial Information Card */}
+          {isAuthenticated && !paymentStatus && (
+            <View style={styles.trialInfoCard}>
+              <View style={styles.trialInfoHeader}>
+                <Ionicons name="information-circle" size={20} color="#2563eb" />
+                <Text style={styles.trialInfoCardTitle}>About Your Free Trial</Text>
+              </View>
+              {trialStatus?.isActive ? (
+                <>
+                  <Text style={styles.trialInfoCardText}>
+                    You're currently enjoying your 7-day free trial with full access to all features.
+                  </Text>
+                  <Text style={styles.trialInfoCardText}>
+                    Your trial ends in {trialStatus.daysRemaining} {trialStatus.daysRemaining === 1 ? 'day' : 'days'}. Make a payment before it ends to continue receiving notifications and enrolling in courses.
+                  </Text>
+                </>
+              ) : trialStatus?.isExpired ? (
+                <>
+                  <Text style={styles.trialInfoCardText}>
+                    Your 7-day free trial has ended. To continue using the app:
+                  </Text>
+                  <View style={styles.trialInfoList}>
+                    <View style={styles.trialInfoListItem}>
+                      <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
+                      <Text style={styles.trialInfoListItemText}>Make a payment (GH₵20)</Text>
+                    </View>
+                    <View style={styles.trialInfoListItem}>
+                      <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
+                      <Text style={styles.trialInfoListItemText}>Continue receiving notifications</Text>
+                    </View>
+                    <View style={styles.trialInfoListItem}>
+                      <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
+                      <Text style={styles.trialInfoListItemText}>Enroll in new courses</Text>
+                    </View>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.trialInfoCardText}>
+                    When you enroll in your first course, you'll automatically start a 7-day free trial with full access to all features.
+                  </Text>
+                  <Text style={styles.trialInfoCardText}>
+                    After 7 days, payment (GH₵20) is required to continue receiving notifications and enrolling in courses.
+                  </Text>
+                </>
+              )}
+            </View>
+          )}
 
           {!paymentStatus && (
             <>
@@ -1561,6 +1644,60 @@ const styles = StyleSheet.create({
   },
   feedbackButtonDisabled: {
     opacity: 0.5,
+  },
+  trialBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2563eb',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    gap: 4,
+  },
+  trialBadgeText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  trialInfoCard: {
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#93c5fd',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  trialInfoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  trialInfoCardTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1e40af',
+  },
+  trialInfoCardText: {
+    fontSize: 13,
+    color: '#1e3a8a',
+    lineHeight: 18,
+    marginBottom: 8,
+  },
+  trialInfoList: {
+    marginTop: 8,
+    gap: 8,
+  },
+  trialInfoListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  trialInfoListItemText: {
+    fontSize: 13,
+    color: '#1e3a8a',
+    flex: 1,
   },
   disabledInput: {
     backgroundColor: '#f3f4f6',

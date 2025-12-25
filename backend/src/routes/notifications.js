@@ -208,6 +208,16 @@ router.post(
         if (!student || !student._id) {
           continue;
         }
+
+        // Fetch full user to check access status
+        const fullUser = await User.findById(student._id);
+        if (!fullUser) {
+          continue;
+        }
+
+        // Check if user has active access (payment OR active trial)
+        // Only send push notifications and SMS if user has active access
+        const hasActiveAccess = fullUser.hasActiveAccess();
         
         // Get student's name for personalized notifications
         const studentName = student.fullName || 'Student';
@@ -220,7 +230,7 @@ router.post(
         
         const personalizedMessage = `Hi ${studentName}, ${messageWithCourse}`;
         
-        // Create in-app notification for all students
+        // Create in-app notification for all students (even if trial expired)
         notifications.push({
           userId: student._id,
           title,
@@ -229,8 +239,8 @@ router.post(
           courseId: courseId,
         });
 
-        // Prepare push notification for students with push tokens and notifications enabled
-        if (student.pushToken && student.notificationsEnabled) {
+        // Prepare push notification only if user has active access
+        if (hasActiveAccess && student.pushToken && student.notificationsEnabled) {
           pushNotifications.push({
             pushToken: student.pushToken,
             title,
@@ -243,8 +253,8 @@ router.post(
           });
         }
 
-        // Prepare SMS for students with phone numbers (only if within 30 minutes of class)
-        if (shouldSendSMS && student.phoneNumber) {
+        // Prepare SMS only if user has active access (only if within 30 minutes of class)
+        if (hasActiveAccess && shouldSendSMS && student.phoneNumber) {
           // Create concise SMS message (max 160 chars)
           const smsMessage = `Hi ${studentName}, URGENT: ${messageWithCourse}`;
           // Truncate if too long

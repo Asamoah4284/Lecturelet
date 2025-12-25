@@ -47,6 +47,14 @@ const userSchema = new mongoose.Schema({
   paymentStatus: {
     type: Boolean,
     default: false
+  },
+  trialStartDate: {
+    type: Date,
+    default: null
+  },
+  trialEndDate: {
+    type: Date,
+    default: null
   }
 }, {
   timestamps: true
@@ -83,8 +91,45 @@ userSchema.methods.updatePushToken = function(pushToken) {
   return this.save();
 };
 
+/**
+ * Check if trial is currently active
+ */
+userSchema.methods.isTrialActive = function() {
+  if (!this.trialEndDate) return false;
+  return new Date() < this.trialEndDate;
+};
+
+/**
+ * Check if user has active access (payment OR active trial)
+ */
+userSchema.methods.hasActiveAccess = function() {
+  return this.paymentStatus || this.isTrialActive();
+};
+
+/**
+ * Start the 7-day free trial
+ */
+userSchema.methods.startTrial = function() {
+  const now = new Date();
+  this.trialStartDate = now;
+  // Add 7 days to trial end date
+  const trialEnd = new Date(now);
+  trialEnd.setDate(trialEnd.getDate() + 7);
+  this.trialEndDate = trialEnd;
+  return this.save();
+};
+
 // Transform output to match expected format
 userSchema.methods.toPublicJSON = function() {
+  const now = new Date();
+  const trialActive = this.trialEndDate && now < this.trialEndDate;
+  let daysRemaining = null;
+  
+  if (trialActive && this.trialEndDate) {
+    const diffTime = this.trialEndDate.getTime() - now.getTime();
+    daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  }
+
   return {
     id: this._id.toString(),
     phone_number: this.phoneNumber,
@@ -95,6 +140,10 @@ userSchema.methods.toPublicJSON = function() {
     notifications_enabled: this.notificationsEnabled,
     reminder_minutes: this.reminderMinutes,
     payment_status: this.paymentStatus,
+    trial_start_date: this.trialStartDate,
+    trial_end_date: this.trialEndDate,
+    trial_active: trialActive,
+    days_remaining: daysRemaining,
     created_at: this.createdAt,
     updated_at: this.updatedAt
   };

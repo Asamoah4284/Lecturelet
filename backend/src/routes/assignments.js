@@ -186,11 +186,25 @@ router.post(
       for (const enrollment of enrollments) {
         const student = enrollment.userId;
         
+        // Skip if user no longer exists
+        if (!student || !student._id) {
+          continue;
+        }
+
+        // Fetch full user to check access status
+        const fullUser = await User.findById(student._id);
+        if (!fullUser) {
+          continue;
+        }
+
+        // Check if user has active access (payment OR active trial)
+        const hasActiveAccess = fullUser.hasActiveAccess();
+        
         // Get student's name for personalized notifications
         const studentName = student.fullName || 'Student';
         const personalizedMessage = `Hi ${studentName}, ${baseMessage}`;
         
-        // Create in-app notification for all students
+        // Create in-app notification for all students (even if trial expired)
         notifications.push({
           userId: student._id,
           title: 'New Assignment Created',
@@ -199,8 +213,8 @@ router.post(
           courseId: courseId,
         });
 
-        // Prepare push notification for students with push tokens and notifications enabled
-        if (student.pushToken && student.notificationsEnabled) {
+        // Prepare push notification only if user has active access
+        if (hasActiveAccess && student.pushToken && student.notificationsEnabled) {
           pushNotifications.push({
             pushToken: student.pushToken,
             title: 'New Assignment Created',
@@ -214,8 +228,8 @@ router.post(
           });
         }
 
-        // Prepare SMS for students with phone numbers (only if within 30 minutes of class)
-        if (shouldSendSMS && student.phoneNumber) {
+        // Prepare SMS only if user has active access (only if within 30 minutes of class)
+        if (hasActiveAccess && shouldSendSMS && student.phoneNumber) {
           const smsMessage = `Hi ${studentName}, URGENT: New assignment "${assignmentName}" for ${courseName}. Deadline: ${date} at ${time}.`;
           // Truncate if too long
           const finalSmsMessage = smsMessage.length > 160 ? smsMessage.substring(0, 157) + '...' : smsMessage;

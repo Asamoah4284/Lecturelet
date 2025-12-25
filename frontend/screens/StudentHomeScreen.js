@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { getApiUrl } from '../config/api';
 import Button from '../components/Button';
 import { useUnreadNotifications } from '../hooks/useUnreadNotifications';
+import { getTrialStatus, hasActiveAccess } from '../utils/trialHelpers';
 
 const StudentHomeScreen = ({ navigation }) => {
   const [userName, setUserName] = useState('Guest');
@@ -26,6 +27,8 @@ const StudentHomeScreen = ({ navigation }) => {
   const { unreadCount } = useUnreadNotifications(navigation);
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [trialStatus, setTrialStatus] = useState(null);
+  const [userData, setUserData] = useState(null);
 
   // Load user data and schedule on mount
   useEffect(() => {
@@ -61,23 +64,32 @@ const StudentHomeScreen = ({ navigation }) => {
       const token = await AsyncStorage.getItem('@auth_token');
       if (!token) {
         setUserName('Guest');
+        setTrialStatus(null);
+        setUserData(null);
         return;
       }
       
       const userDataString = await AsyncStorage.getItem('@user_data');
       if (userDataString) {
         const userData = JSON.parse(userDataString);
+        setUserData(userData);
         if (userData.full_name) {
           setUserName(userData.full_name);
         } else {
           setUserName('Student');
         }
+        const status = getTrialStatus(userData);
+        setTrialStatus(status);
       } else {
         setUserName('Student');
+        setTrialStatus(null);
+        setUserData(null);
       }
     } catch (error) {
       console.error('Error loading user data:', error);
       setUserName('Guest');
+      setTrialStatus(null);
+      setUserData(null);
     }
   };
 
@@ -293,6 +305,22 @@ const StudentHomeScreen = ({ navigation }) => {
       <View style={styles.header} />
 
       <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
+        {/* Trial Countdown Banner */}
+        {isAuthenticated && trialStatus?.isActive && !userData?.payment_status && (
+          <View style={styles.trialBanner}>
+            <Ionicons name="gift" size={20} color="#2563eb" />
+            <Text style={styles.trialBannerText}>
+              {trialStatus.daysRemaining} {trialStatus.daysRemaining === 1 ? 'day' : 'days'} remaining in your free trial
+            </Text>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Settings')}
+              style={styles.trialBannerButton}
+            >
+              <Text style={styles.trialBannerButtonText}>Pay Now</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Greeting Section */}
         <View style={styles.greetingRow}>
           <View style={styles.greetingLeft}>
@@ -524,6 +552,27 @@ const StudentHomeScreen = ({ navigation }) => {
           </View>
         )}
       </ScrollView>
+
+      {/* Blur Overlay for Expired Trial */}
+      {isAuthenticated && trialStatus?.isExpired && !userData?.payment_status && (
+        <View style={styles.blurOverlay}>
+          <View style={styles.blurContent}>
+            <View style={styles.blurIconContainer}>
+              <Ionicons name="lock-closed" size={64} color="#6b7280" />
+            </View>
+            <Text style={styles.blurTitle}>Your 7-Day Free Trial Has Ended</Text>
+            <Text style={styles.blurDescription}>
+              To continue accessing your courses and receiving notifications, please make a payment.
+            </Text>
+            <Button
+              title="Make Payment"
+              onPress={() => navigation.navigate('Settings')}
+              variant="primary"
+              style={styles.blurButton}
+            />
+          </View>
+        </View>
+      )}
 
       {/* Bottom Navigation */}
       <View style={styles.bottomNav}>
@@ -1075,6 +1124,78 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#2563eb',
     fontWeight: '600',
+  },
+  trialBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#93c5fd',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 20,
+    gap: 10,
+  },
+  trialBannerText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#1e40af',
+    fontWeight: '600',
+  },
+  trialBannerButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#2563eb',
+    borderRadius: 6,
+  },
+  trialBannerButtonText: {
+    fontSize: 12,
+    color: '#ffffff',
+    fontWeight: '600',
+  },
+  blurOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  blurContent: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 24,
+    marginHorizontal: 20,
+    alignItems: 'center',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  blurIconContainer: {
+    marginBottom: 16,
+  },
+  blurTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  blurDescription: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  blurButton: {
+    minWidth: 200,
   },
 });
 

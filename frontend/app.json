@@ -2,7 +2,7 @@
   "expo": {
     "name": "LectureLet",
     "slug": "LectureLet",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./assets/logo-1.png",
@@ -17,7 +17,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.LectureLet.app",
-      "buildNumber": "3",
+      "buildNumber": "4",
       "infoPlist": {
         "UIBackgroundModes": [
           "remote-notification"
@@ -34,6 +34,7 @@
         "backgroundColor": "#6366f1"
       },
       "package": "com.LectureLet.app",
+      "versionCode": 1,
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
@@ -58,7 +59,6 @@
     ],
     "extra": {
       "apiUrl": "https://lecturelet.onrender.com/api",
-
       "PAYSTACK_PUBLIC_KEY": "pk_test_5fe292bf0df872407adaebe53b5982e173a45f44",
       "eas": {
         "projectId": "ea913b88-c870-4e26-90b7-87661d3890f0"

@@ -22,6 +22,7 @@ import { getApiUrl } from '../config/api';
 
 const CourseRepScreen = ({ navigation }) => {
   const [userName, setUserName] = useState('Course Rep');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -53,6 +54,13 @@ const CourseRepScreen = ({ navigation }) => {
 
   const loadUserData = async () => {
     try {
+      const token = await AsyncStorage.getItem('@auth_token');
+      setIsAuthenticated(!!token);
+      if (!token) {
+        setUserName('Guest');
+        return;
+      }
+
       const userDataString = await AsyncStorage.getItem('@user_data');
       if (userDataString) {
         const userData = JSON.parse(userDataString);
@@ -69,9 +77,13 @@ const CourseRepScreen = ({ navigation }) => {
     try {
       const token = await AsyncStorage.getItem('@auth_token');
       if (!token) {
+        setIsAuthenticated(false);
+        setCourses([]);
         setLoading(false);
+        setRefreshing(false);
         return;
       }
+      setIsAuthenticated(true);
 
       // Check user role before making API call
       const userDataString = await AsyncStorage.getItem('@user_data');
@@ -113,6 +125,13 @@ const CourseRepScreen = ({ navigation }) => {
   const onRefresh = () => {
     setRefreshing(true);
     loadCourses();
+  };
+
+  const requireAuth = (message) => {
+    Alert.alert('Sign Up Required', message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Sign Up', onPress: () => navigation.navigate('Signup') },
+    ]);
   };
 
   const handleNotificationPress = (course) => {
@@ -293,10 +312,22 @@ const CourseRepScreen = ({ navigation }) => {
               <Text style={styles.dateText}>{getCurrentDate()}</Text>
             </View>
           </View>
-          <TouchableOpacity style={styles.addButton} onPress={() => navigation.navigate('AddCourse')}>
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={() => navigation.navigate('AddCourse')}
+          >
             <Ionicons name="add" size={28} color="#ffffff" />
           </TouchableOpacity>
         </View>
+
+        {!isAuthenticated && (
+          <View style={styles.guestBanner}>
+            <Ionicons name="information-circle-outline" size={18} color="#2563eb" />
+            <Text style={styles.guestBannerText}>
+              Preview mode: sign up to create courses and send notifications.
+            </Text>
+          </View>
+        )}
 
         {/* Section Header */}
         <View style={styles.sectionHeader}>
@@ -356,7 +387,13 @@ const CourseRepScreen = ({ navigation }) => {
                   <View style={styles.actionButtons}>
                     <TouchableOpacity
                       style={styles.editButton}
-                      onPress={() => navigation.navigate('AddCourse', { course: courseForEdit })}
+                      onPress={() => {
+                        if (!isAuthenticated) {
+                          requireAuth('Please sign up to edit a course.');
+                          return;
+                        }
+                        navigation.navigate('AddCourse', { course: courseForEdit });
+                      }}
                     >
                       <Ionicons name="create-outline" size={18} color="#2563eb" />
                     </TouchableOpacity>
@@ -389,11 +426,19 @@ const CourseRepScreen = ({ navigation }) => {
             </View>
             <Text style={styles.emptyTitle}>No Courses Published</Text>
             <Text style={styles.emptyDescription}>
-              You haven't published any courses yet. Create your first course to get started.
+              {!isAuthenticated
+                ? "You're in preview mode. Sign up to create your first course."
+                : "You haven't published any courses yet. Create your first course to get started."}
             </Text>
             <Button
-              title="Create Course"
-              onPress={() => navigation.navigate('AddCourse')}
+              title={isAuthenticated ? 'Create Course' : 'Sign Up to Create Course'}
+              onPress={() => {
+                if (!isAuthenticated) {
+                  requireAuth('Please sign up to create a course.');
+                  return;
+                }
+                navigation.navigate('AddCourse');
+              }}
               variant="primary"
               style={styles.createButton}
             />
@@ -422,7 +467,13 @@ const CourseRepScreen = ({ navigation }) => {
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.navItem}
-          onPress={() => navigation.navigate('Notifications')}
+          onPress={() => {
+            if (!isAuthenticated) {
+              requireAuth('Please sign up to access notifications.');
+              return;
+            }
+            navigation.navigate('Notifications');
+          }}
         >
           <Ionicons name="notifications-outline" size={24} color="#6b7280" />
           <Text style={styles.navLabel}>Notifications</Text>
@@ -749,6 +800,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 24,
     paddingHorizontal: 20,
+  },
+  guestBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  guestBannerText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#1e40af',
+    fontWeight: '500',
   },
   createButton: {
     minWidth: 160,

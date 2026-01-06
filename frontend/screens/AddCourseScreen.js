@@ -40,6 +40,7 @@ const AddCourseScreen = ({ navigation, route }) => {
   const [showCodeModal, setShowCodeModal] = useState(false);
   const [generatedCode, setGeneratedCode] = useState('');
   const [editType, setEditType] = useState('permanent'); // 'temporary' or 'permanent'
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   // Helper to get field value handling both camelCase and snake_case
   const getField = (camelCase, snakeCase) => {
@@ -149,6 +150,20 @@ const AddCourseScreen = ({ navigation, route }) => {
   });
 
   useEffect(() => {
+    const loadAuthStatus = async () => {
+      try {
+        const token = await AsyncStorage.getItem('@auth_token');
+        setIsAuthenticated(!!token);
+      } catch (error) {
+        console.error('Error loading auth status:', error);
+        setIsAuthenticated(false);
+      }
+    };
+
+    loadAuthStatus();
+  }, []);
+
+  useEffect(() => {
     if (editingCourse) {
       navigation.setOptions({ title: 'Edit Course' });
       
@@ -193,6 +208,17 @@ const AddCourseScreen = ({ navigation, route }) => {
       );
     }
   }, [editingCourse, navigation]);
+
+  const requireAuthToPublish = () => {
+    Alert.alert(
+      'Sign Up Required',
+      'You can fill this form in preview mode, but you need an account to publish a course.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign Up', onPress: () => navigation.navigate('Signup') },
+      ]
+    );
+  };
 
   const toggleDay = (dayIndex) => {
     const day = DAYS[dayIndex];
@@ -328,8 +354,7 @@ const AddCourseScreen = ({ navigation, route }) => {
       // Get auth token
       const token = await AsyncStorage.getItem('@auth_token');
       if (!token) {
-        Alert.alert('Error', 'Not authenticated. Please log in again.');
-        navigation.navigate('Login');
+        requireAuthToPublish();
         return;
       }
 
@@ -440,6 +465,15 @@ const AddCourseScreen = ({ navigation, route }) => {
             Fill in the details to create a new course
           </Text>
         </View>
+
+        {!isAuthenticated && !editingCourse && (
+          <View style={styles.guestBanner}>
+            <Ionicons name="information-circle-outline" size={18} color="#2563eb" />
+            <Text style={styles.guestBannerText}>
+              Preview mode: you can fill the form, but you need an account to publish.
+            </Text>
+          </View>
+        )}
 
         {/* Form Fields */}
         <View style={styles.form}>
@@ -666,8 +700,24 @@ const AddCourseScreen = ({ navigation, route }) => {
           )}
 
           <Button
-            title={loading ? (editingCourse ? 'Updating...' : 'Creating...') : (editingCourse ? 'Update Course' : 'Create Course')}
-            onPress={handleSave}
+            title={
+              loading
+                ? editingCourse
+                  ? 'Updating...'
+                  : 'Creating...'
+                : editingCourse
+                ? 'Update Course'
+                : isAuthenticated
+                ? 'Create Course'
+                : 'Sign Up to Publish'
+            }
+            onPress={() => {
+              if (!editingCourse && !isAuthenticated) {
+                requireAuthToPublish();
+                return;
+              }
+              handleSave();
+            }}
             variant="primary"
             style={styles.saveButton}
             disabled={loading}
@@ -791,6 +841,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 14,
     marginBottom: 24,
+  },
+  guestBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    borderRadius: 12,
+    padding: 12,
+    marginHorizontal: 24,
+    marginBottom: 16,
+  },
+  guestBannerText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#1e40af',
+    fontWeight: '500',
   },
   formTitle: {
     fontSize: 20,

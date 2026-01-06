@@ -270,6 +270,83 @@ const SettingsContent = ({ navigation }) => {
     );
   };
 
+  const handleDeleteAccount = () => {
+    if (!isAuthenticated) {
+      Alert.alert('Sign Up Required', 'Please sign up to access account features.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign Up', onPress: () => navigation.navigate('Signup') },
+      ]);
+      return;
+    }
+
+    Alert.alert(
+      'Delete Account',
+      'Are you sure you want to delete your account? This action cannot be undone. All your data, enrollments, and notifications will be permanently deleted.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const token = await AsyncStorage.getItem('@auth_token');
+              if (!token) {
+                Alert.alert('Error', 'Not authenticated. Please log in again.');
+                return;
+              }
+
+              const response = await fetch(getApiUrl('auth/account'), {
+                method: 'DELETE',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                },
+              });
+
+              const data = await response.json();
+
+              if (response.ok && data.success) {
+                // Clear authentication data
+                await AsyncStorage.removeItem('@auth_token');
+                await AsyncStorage.removeItem('@user_data');
+                
+                // Cancel all local reminders
+                await cancelAllReminders();
+                
+                // Remove push token
+                await removePushToken();
+
+                Alert.alert(
+                  'Account Deleted',
+                  'Your account has been successfully deleted.',
+                  [
+                    {
+                      text: 'OK',
+                      onPress: () => {
+                        // Reset navigation stack to StudentHome
+                        navigation.reset({
+                          index: 0,
+                          routes: [{ name: 'StudentHome' }],
+                        });
+                      },
+                    },
+                  ]
+                );
+              } else {
+                Alert.alert('Error', data.message || 'Failed to delete account. Please try again.');
+              }
+            } catch (error) {
+              console.error('Error deleting account:', error);
+              Alert.alert('Error', 'Failed to delete account. Please check your connection and try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   // Payment initialization handler
   const handleInitializePayment = async () => {
     if (!isAuthenticated) {
@@ -727,168 +804,170 @@ const SettingsContent = ({ navigation }) => {
           )}
         </View>
 
-        {/* Payment Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Payment</Text>
+        {/* Payment Section - Only show for authenticated students (hide for guests + course reps) */}
+        {isAuthenticated && userRole === 'student' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Payment</Text>
 
-          {/* Payment/Trial Status */}
-          <View style={styles.settingItem}>
-            <View style={styles.settingLeft}>
-              <Ionicons 
-                name={
-                  paymentStatus 
-                    ? "checkmark-circle" 
-                    : trialStatus?.isActive 
-                    ? "gift" 
-                    : "alert-circle"
-                } 
-                size={20} 
-                color={
-                  paymentStatus 
-                    ? "#22c55e" 
-                    : trialStatus?.isActive 
-                    ? "#2563eb" 
-                    : "#f59e0b"
-                } 
-              />
-              <View style={styles.settingInfo}>
-                <Text style={styles.settingLabel}>
-                  {paymentStatus ? 'Payment Status' : trialStatus?.isActive ? 'Free Trial Status' : 'Payment Status'}
-                </Text>
-                <Text style={[styles.settingDescription, paymentStatus && styles.paymentStatusPaid]}>
-                  {paymentStatus 
-                    ? 'Paid' 
-                    : trialStatus?.isActive 
-                    ? `Free Trial Active - ${trialStatus.daysRemaining} ${trialStatus.daysRemaining === 1 ? 'day' : 'days'} remaining`
-                    : trialStatus?.isExpired
-                    ? 'Trial Expired - Payment required to continue'
-                    : 'Not Paid - Payment required for course enrollment'}
-                </Text>
-              </View>
-            </View>
-            {paymentStatus && (
-              <View style={styles.paidBadge}>
-                <Ionicons name="checkmark" size={16} color="#ffffff" />
-                <Text style={styles.paidBadgeText}>Paid</Text>
-              </View>
-            )}
-            {!paymentStatus && trialStatus?.isActive && (
-              <View style={styles.trialBadge}>
-                <Ionicons name="gift" size={16} color="#ffffff" />
-                <Text style={styles.trialBadgeText}>Trial</Text>
-              </View>
-            )}
-          </View>
-
-          {/* Trial Information Card */}
-          {isAuthenticated && !paymentStatus && (
-            <View style={styles.trialInfoCard}>
-              <View style={styles.trialInfoHeader}>
-                <Ionicons name="information-circle" size={20} color="#2563eb" />
-                <Text style={styles.trialInfoCardTitle}>About Your Free Trial</Text>
-              </View>
-              {trialStatus?.isActive ? (
-                <>
-                  <Text style={styles.trialInfoCardText}>
-                    You're currently enjoying your 7-day free trial with full access to all features.
+            {/* Payment/Trial Status */}
+            <View style={styles.settingItem}>
+              <View style={styles.settingLeft}>
+                <Ionicons 
+                  name={
+                    paymentStatus 
+                      ? "checkmark-circle" 
+                      : trialStatus?.isActive 
+                      ? "gift" 
+                      : "alert-circle"
+                  } 
+                  size={20} 
+                  color={
+                    paymentStatus 
+                      ? "#22c55e" 
+                      : trialStatus?.isActive 
+                      ? "#2563eb" 
+                      : "#f59e0b"
+                  } 
+                />
+                <View style={styles.settingInfo}>
+                  <Text style={styles.settingLabel}>
+                    {paymentStatus ? 'Payment Status' : trialStatus?.isActive ? 'Free Trial Status' : 'Payment Status'}
                   </Text>
-                  <Text style={styles.trialInfoCardText}>
-                    Your trial ends in {trialStatus.daysRemaining} {trialStatus.daysRemaining === 1 ? 'day' : 'days'}. Make a payment before it ends to continue receiving notifications and enrolling in courses.
-                  </Text>
-                </>
-              ) : trialStatus?.isExpired ? (
-                <>
-                  <Text style={styles.trialInfoCardText}>
-                    Your 7-day free trial has ended. To continue using the app:
-                  </Text>
-                  <View style={styles.trialInfoList}>
-                    <View style={styles.trialInfoListItem}>
-                      <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
-                      <Text style={styles.trialInfoListItemText}>Make a payment (GH₵20)</Text>
-                    </View>
-                    <View style={styles.trialInfoListItem}>
-                      <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
-                      <Text style={styles.trialInfoListItemText}>Continue receiving notifications</Text>
-                    </View>
-                    <View style={styles.trialInfoListItem}>
-                      <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
-                      <Text style={styles.trialInfoListItemText}>Enroll in new courses</Text>
-                    </View>
-                  </View>
-                </>
-              ) : (
-                <>
-                  <Text style={styles.trialInfoCardText}>
-                    When you enroll in your first course, you'll automatically start a 7-day free trial with full access to all features.
-                  </Text>
-                  <Text style={styles.trialInfoCardText}>
-                    After 7 days, payment (GH₵20) is required to continue receiving notifications and enrolling in courses.
-                  </Text>
-                </>
-              )}
-            </View>
-          )}
-
-          {!paymentStatus && (
-            <>
-              {!isAuthenticated && (
-                <View style={styles.guestPaymentPrompt}>
-                  <Ionicons name="information-circle-outline" size={20} color="#2563eb" />
-                  <Text style={styles.guestPaymentPromptText}>
-                    Sign up to make payments and enroll in courses
+                  <Text style={[styles.settingDescription, paymentStatus && styles.paymentStatusPaid]}>
+                    {paymentStatus 
+                      ? 'Paid' 
+                      : trialStatus?.isActive 
+                      ? `Free Trial Active - ${trialStatus.daysRemaining} ${trialStatus.daysRemaining === 1 ? 'day' : 'days'} remaining`
+                      : trialStatus?.isExpired
+                      ? 'Trial Expired - Payment required to continue'
+                      : 'Not Paid - Payment required for course enrollment'}
                   </Text>
                 </View>
+              </View>
+              {paymentStatus && (
+                <View style={styles.paidBadge}>
+                  <Ionicons name="checkmark" size={16} color="#ffffff" />
+                  <Text style={styles.paidBadgeText}>Paid</Text>
+                </View>
               )}
-              <View style={styles.settingItem}>
-                <View style={styles.settingLeft}>
-                  <Ionicons name="card-outline" size={20} color="#6b7280" />
-                  <View style={styles.settingInfo}>
-                    <Text style={styles.settingLabel}>Make Payment</Text>
-                    <Text style={styles.settingDescription}>
-                      Pay GH₵{FIXED_PAYMENT_AMOUNT} for course enrollment and services
+              {!paymentStatus && trialStatus?.isActive && (
+                <View style={styles.trialBadge}>
+                  <Ionicons name="gift" size={16} color="#ffffff" />
+                  <Text style={styles.trialBadgeText}>Trial</Text>
+                </View>
+              )}
+            </View>
+
+            {/* Trial Information Card */}
+            {isAuthenticated && !paymentStatus && (
+              <View style={styles.trialInfoCard}>
+                <View style={styles.trialInfoHeader}>
+                  <Ionicons name="information-circle" size={20} color="#2563eb" />
+                  <Text style={styles.trialInfoCardTitle}>About Your Free Trial</Text>
+                </View>
+                {trialStatus?.isActive ? (
+                  <>
+                    <Text style={styles.trialInfoCardText}>
+                      You're currently enjoying your 7-day free trial with full access to all features.
+                    </Text>
+                    <Text style={styles.trialInfoCardText}>
+                      Your trial ends in {trialStatus.daysRemaining} {trialStatus.daysRemaining === 1 ? 'day' : 'days'}. Make a payment before it ends to continue receiving notifications and enrolling in courses.
+                    </Text>
+                  </>
+                ) : trialStatus?.isExpired ? (
+                  <>
+                    <Text style={styles.trialInfoCardText}>
+                      Your 7-day free trial has ended. To continue using the app:
+                    </Text>
+                    <View style={styles.trialInfoList}>
+                      <View style={styles.trialInfoListItem}>
+                        <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
+                        <Text style={styles.trialInfoListItemText}>Make a payment (GH₵20)</Text>
+                      </View>
+                      <View style={styles.trialInfoListItem}>
+                        <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
+                        <Text style={styles.trialInfoListItemText}>Continue receiving notifications</Text>
+                      </View>
+                      <View style={styles.trialInfoListItem}>
+                        <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
+                        <Text style={styles.trialInfoListItemText}>Enroll in new courses</Text>
+                      </View>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.trialInfoCardText}>
+                      When you enroll in your first course, you'll automatically start a 7-day free trial with full access to all features.
+                    </Text>
+                    <Text style={styles.trialInfoCardText}>
+                      After 7 days, payment (GH₵20) is required to continue receiving notifications and enrolling in courses.
+                    </Text>
+                  </>
+                )}
+              </View>
+            )}
+
+            {!paymentStatus && (
+              <>
+                {!isAuthenticated && (
+                  <View style={styles.guestPaymentPrompt}>
+                    <Ionicons name="information-circle-outline" size={20} color="#2563eb" />
+                    <Text style={styles.guestPaymentPromptText}>
+                      Sign up to make payments and enroll in courses
                     </Text>
                   </View>
+                )}
+                <View style={styles.settingItem}>
+                  <View style={styles.settingLeft}>
+                    <Ionicons name="card-outline" size={20} color="#6b7280" />
+                    <View style={styles.settingInfo}>
+                      <Text style={styles.settingLabel}>Make Payment</Text>
+                      <Text style={styles.settingDescription}>
+                        Pay GH₵{FIXED_PAYMENT_AMOUNT} for course enrollment and services
+                      </Text>
+                    </View>
+                  </View>
                 </View>
-              </View>
 
-              <View style={styles.paymentEmailContainer}>
-                <Text style={styles.paymentEmailLabel}>Email Address</Text>
-                <TextInput
-                  style={[styles.paymentEmailInput, !isAuthenticated && styles.disabledInput]}
-                  value={paymentEmail}
-                  onChangeText={(text) => {
-                    if (isAuthenticated) {
-                      setPaymentEmail(text);
-                    }
-                  }}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  placeholder={userEmail || "Enter your email address"}
-                  placeholderTextColor="#9ca3af"
-                  editable={isAuthenticated}
-                />
-                {userEmail && (
-                  <Text style={styles.paymentEmailHint}>
-                    Using profile email: {userEmail}
-                  </Text>
-                )}
-              </View>
+                <View style={styles.paymentEmailContainer}>
+                  <Text style={styles.paymentEmailLabel}>Email Address</Text>
+                  <TextInput
+                    style={[styles.paymentEmailInput, !isAuthenticated && styles.disabledInput]}
+                    value={paymentEmail}
+                    onChangeText={(text) => {
+                      if (isAuthenticated) {
+                        setPaymentEmail(text);
+                      }
+                    }}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    placeholder={userEmail || "Enter your email address"}
+                    placeholderTextColor="#9ca3af"
+                    editable={isAuthenticated}
+                  />
+                  {userEmail && (
+                    <Text style={styles.paymentEmailHint}>
+                      Using profile email: {userEmail}
+                    </Text>
+                  )}
+                </View>
 
-              <TouchableOpacity
-                style={[styles.payButton, (isProcessingPayment || !isAuthenticated) && styles.payButtonDisabled]}
-                onPress={handleInitializePayment}
-                disabled={isProcessingPayment || !isAuthenticated}
-              >
-                {isProcessingPayment ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
-                ) : (
-                  <Text style={styles.payButtonText}>Pay GH₵{FIXED_PAYMENT_AMOUNT}</Text>
-                )}
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
+                <TouchableOpacity
+                  style={[styles.payButton, (isProcessingPayment || !isAuthenticated) && styles.payButtonDisabled]}
+                  onPress={handleInitializePayment}
+                  disabled={isProcessingPayment || !isAuthenticated}
+                >
+                  {isProcessingPayment ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <Text style={styles.payButtonText}>Pay GH₵{FIXED_PAYMENT_AMOUNT}</Text>
+                  )}
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        )}
 
         {/* Support Section */}
         <View style={styles.section}>
@@ -964,9 +1043,16 @@ const SettingsContent = ({ navigation }) => {
 
         {/* Logout Button + Version */}
         {isAuthenticated && (
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Text style={styles.logoutText}>Logout</Text>
-          </TouchableOpacity>
+          <>
+            <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+              <Text style={styles.logoutText}>Logout</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={styles.deleteAccountButton} onPress={handleDeleteAccount}>
+              <Ionicons name="trash-outline" size={16} color="#ef4444" style={styles.deleteAccountIcon} />
+              <Text style={styles.deleteAccountText}>Delete Account</Text>
+            </TouchableOpacity>
+          </>
         )}
 
         <Text style={styles.versionText}>Version 1.0.0</Text>
@@ -1198,7 +1284,11 @@ const SettingsContent = ({ navigation }) => {
         <TouchableOpacity
           style={styles.navItem}
           onPress={() => {
-            const homeScreen = userRole === 'course_rep' ? 'CourseRep' : 'StudentHome';
+            const homeScreen = !isAuthenticated
+              ? 'CourseRep'
+              : userRole === 'course_rep'
+              ? 'CourseRep'
+              : 'StudentHome';
             navigation.navigate(homeScreen);
           }}
         >
@@ -1367,6 +1457,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   logoutText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#ef4444',
+  },
+  deleteAccountButton: {
+    marginTop: 12,
+    marginHorizontal: 20,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  deleteAccountIcon: {
+    marginRight: 4,
+  },
+  deleteAccountText: {
     fontSize: 13,
     fontWeight: '600',
     color: '#ef4444',

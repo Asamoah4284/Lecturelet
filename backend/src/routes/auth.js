@@ -1,6 +1,6 @@
 const express = require('express');
 const { body } = require('express-validator');
-const { User, College } = require('../models');
+const { User, College, Course, Enrollment, Notification } = require('../models');
 const { authenticate, generateToken } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 
@@ -274,6 +274,55 @@ router.get('/colleges', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch colleges',
+    });
+  }
+});
+
+/**
+ * @route   DELETE /api/auth/account
+ * @desc    Delete current user account and all associated data
+ * @access  Private
+ */
+router.delete('/account', authenticate, async (req, res) => {
+  try {
+    // req.user.id is the string ID from toPublicJSON()
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    // Check if user is a course_rep with created courses
+    if (user.role === 'course_rep') {
+      const coursesCreated = await Course.findByCreator(req.user.id);
+      if (coursesCreated && coursesCreated.length > 0) {
+        return res.status(403).json({
+          success: false,
+          message: 'Cannot delete account. Please delete or transfer ownership of your courses first.',
+        });
+      }
+    }
+
+    // Delete all enrollments for this user
+    await Enrollment.deleteMany({ userId: req.user.id });
+
+    // Delete all notifications for this user
+    await Notification.deleteAllForUser(req.user.id);
+
+    // Delete the user account
+    await User.findByIdAndDelete(req.user.id);
+
+    res.json({
+      success: true,
+      message: 'Account deleted successfully',
+    });
+  } catch (error) {
+    console.error('Delete account error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete account. Please try again.',
     });
   }
 });

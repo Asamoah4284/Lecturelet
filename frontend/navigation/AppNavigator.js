@@ -22,7 +22,6 @@ import StudentTimetableScreen from '../screens/StudentTimetableScreen';
 import CreateQuizScreen from '../screens/CreateQuizScreen';
 import CreateTutorialScreen from '../screens/CreateTutorialScreen';
 import CreateAssignmentScreen from '../screens/CreateAssignmentScreen';
-import AnnouncementScreen from '../screens/AnnouncementScreen';
 
 const Stack = createStackNavigator();
 
@@ -45,13 +44,11 @@ const AppNavigator = () => {
           // Default to student home if logged in but no role set
           setInitialRoute('StudentHome');
         } else {
-          // Navigate to CourseRep for guests (guest mode)
-          setInitialRoute('CourseRep');
+          setInitialRoute('Welcome');
         }
       } catch (err) {
         console.error('Error determining initial route:', err);
-        // Default to CourseRep even on error (guest mode)
-        setInitialRoute('CourseRep');
+        setInitialRoute('Welcome');
       }
     };
 
@@ -182,11 +179,6 @@ const AppNavigator = () => {
         <Stack.Screen
           name="CreateAssignment"
           component={CreateAssignmentScreen}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="Announcement"
-          component={AnnouncementScreen}
           options={{ headerShown: false }}
         />
       </Stack.Navigator>

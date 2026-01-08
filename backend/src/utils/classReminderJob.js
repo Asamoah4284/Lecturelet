@@ -216,7 +216,7 @@ const processClassReminders = async () => {
           console.log(`User ${user._id} (${user.fullName}) has no push token, skipping`);
           continue;
         }
-
+        
         // Check if user has active access (payment OR active trial)
         if (!user.hasActiveAccess()) {
           console.log(`User ${user._id} (${user.fullName}) does not have active access (trial expired, no payment), skipping notifications`);

@@ -806,13 +806,13 @@ const SettingsContent = ({ navigation }) => {
 
         {/* Payment Section - Only show for authenticated students (hide for guests + course reps) */}
         {isAuthenticated && userRole === 'student' && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Payment</Text>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Payment</Text>
 
             {/* Payment/Trial Status */}
-            <View style={styles.settingItem}>
-              <View style={styles.settingLeft}>
-                <Ionicons 
+          <View style={styles.settingItem}>
+            <View style={styles.settingLeft}>
+              <Ionicons 
                   name={
                     paymentStatus 
                       ? "checkmark-circle" 
@@ -820,7 +820,7 @@ const SettingsContent = ({ navigation }) => {
                       ? "gift" 
                       : "alert-circle"
                   } 
-                  size={20} 
+                size={20} 
                   color={
                     paymentStatus 
                       ? "#22c55e" 
@@ -828,12 +828,12 @@ const SettingsContent = ({ navigation }) => {
                       ? "#2563eb" 
                       : "#f59e0b"
                   } 
-                />
-                <View style={styles.settingInfo}>
+              />
+              <View style={styles.settingInfo}>
                   <Text style={styles.settingLabel}>
                     {paymentStatus ? 'Payment Status' : trialStatus?.isActive ? 'Free Trial Status' : 'Payment Status'}
                   </Text>
-                  <Text style={[styles.settingDescription, paymentStatus && styles.paymentStatusPaid]}>
+                <Text style={[styles.settingDescription, paymentStatus && styles.paymentStatusPaid]}>
                     {paymentStatus 
                       ? 'Paid' 
                       : trialStatus?.isActive 
@@ -841,22 +841,22 @@ const SettingsContent = ({ navigation }) => {
                       : trialStatus?.isExpired
                       ? 'Trial Expired - Payment required to continue'
                       : 'Not Paid - Payment required for course enrollment'}
-                  </Text>
-                </View>
+                </Text>
               </View>
-              {paymentStatus && (
-                <View style={styles.paidBadge}>
-                  <Ionicons name="checkmark" size={16} color="#ffffff" />
-                  <Text style={styles.paidBadgeText}>Paid</Text>
-                </View>
-              )}
+            </View>
+            {paymentStatus && (
+              <View style={styles.paidBadge}>
+                <Ionicons name="checkmark" size={16} color="#ffffff" />
+                <Text style={styles.paidBadgeText}>Paid</Text>
+              </View>
+            )}
               {!paymentStatus && trialStatus?.isActive && (
                 <View style={styles.trialBadge}>
                   <Ionicons name="gift" size={16} color="#ffffff" />
                   <Text style={styles.trialBadgeText}>Trial</Text>
                 </View>
               )}
-            </View>
+          </View>
 
             {/* Trial Information Card */}
             {isAuthenticated && !paymentStatus && (
@@ -907,8 +907,8 @@ const SettingsContent = ({ navigation }) => {
               </View>
             )}
 
-            {!paymentStatus && (
-              <>
+          {!paymentStatus && (
+            <>
                 {!isAuthenticated && (
                   <View style={styles.guestPaymentPrompt}>
                     <Ionicons name="information-circle-outline" size={20} color="#2563eb" />
@@ -917,56 +917,56 @@ const SettingsContent = ({ navigation }) => {
                     </Text>
                   </View>
                 )}
-                <View style={styles.settingItem}>
-                  <View style={styles.settingLeft}>
-                    <Ionicons name="card-outline" size={20} color="#6b7280" />
-                    <View style={styles.settingInfo}>
-                      <Text style={styles.settingLabel}>Make Payment</Text>
-                      <Text style={styles.settingDescription}>
-                        Pay GH₵{FIXED_PAYMENT_AMOUNT} for course enrollment and services
-                      </Text>
-                    </View>
+              <View style={styles.settingItem}>
+                <View style={styles.settingLeft}>
+                  <Ionicons name="card-outline" size={20} color="#6b7280" />
+                  <View style={styles.settingInfo}>
+                    <Text style={styles.settingLabel}>Make Payment</Text>
+                    <Text style={styles.settingDescription}>
+                      Pay GH₵{FIXED_PAYMENT_AMOUNT} for course enrollment and services
+                    </Text>
                   </View>
                 </View>
+              </View>
 
-                <View style={styles.paymentEmailContainer}>
-                  <Text style={styles.paymentEmailLabel}>Email Address</Text>
-                  <TextInput
+              <View style={styles.paymentEmailContainer}>
+                <Text style={styles.paymentEmailLabel}>Email Address</Text>
+                <TextInput
                     style={[styles.paymentEmailInput, !isAuthenticated && styles.disabledInput]}
-                    value={paymentEmail}
+                  value={paymentEmail}
                     onChangeText={(text) => {
                       if (isAuthenticated) {
                         setPaymentEmail(text);
                       }
                     }}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    placeholder={userEmail || "Enter your email address"}
-                    placeholderTextColor="#9ca3af"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder={userEmail || "Enter your email address"}
+                  placeholderTextColor="#9ca3af"
                     editable={isAuthenticated}
-                  />
-                  {userEmail && (
-                    <Text style={styles.paymentEmailHint}>
-                      Using profile email: {userEmail}
-                    </Text>
-                  )}
-                </View>
+                />
+                {userEmail && (
+                  <Text style={styles.paymentEmailHint}>
+                    Using profile email: {userEmail}
+                  </Text>
+                )}
+              </View>
 
-                <TouchableOpacity
+              <TouchableOpacity
                   style={[styles.payButton, (isProcessingPayment || !isAuthenticated) && styles.payButtonDisabled]}
-                  onPress={handleInitializePayment}
+                onPress={handleInitializePayment}
                   disabled={isProcessingPayment || !isAuthenticated}
-                >
-                  {isProcessingPayment ? (
-                    <ActivityIndicator size="small" color="#ffffff" />
-                  ) : (
-                    <Text style={styles.payButtonText}>Pay GH₵{FIXED_PAYMENT_AMOUNT}</Text>
-                  )}
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
+              >
+                {isProcessingPayment ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={styles.payButtonText}>Pay GH₵{FIXED_PAYMENT_AMOUNT}</Text>
+                )}
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
         )}
 
         {/* Support Section */}
@@ -1022,13 +1022,13 @@ const SettingsContent = ({ navigation }) => {
 
         {/* Save Settings Button */}
         {isAuthenticated ? (
-          <Button
-            title={saving ? "Saving..." : "Save Settings"}
-            onPress={handleSaveSettings}
-            variant="primary"
-            style={styles.saveButton}
-            disabled={saving}
-          />
+        <Button
+          title={saving ? "Saving..." : "Save Settings"}
+          onPress={handleSaveSettings}
+          variant="primary"
+          style={styles.saveButton}
+          disabled={saving}
+        />
         ) : (
           <View style={styles.guestPromptContainer}>
             <Text style={styles.guestPromptText}>Sign up to save settings and access all features</Text>
@@ -1044,9 +1044,9 @@ const SettingsContent = ({ navigation }) => {
         {/* Logout Button + Version */}
         {isAuthenticated && (
           <>
-            <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-              <Text style={styles.logoutText}>Logout</Text>
-            </TouchableOpacity>
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <Text style={styles.logoutText}>Logout</Text>
+        </TouchableOpacity>
             
             <TouchableOpacity style={styles.deleteAccountButton} onPress={handleDeleteAccount}>
               <Ionicons name="trash-outline" size={16} color="#ef4444" style={styles.deleteAccountIcon} />

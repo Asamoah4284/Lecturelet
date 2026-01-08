@@ -208,7 +208,7 @@ router.post(
         if (!student || !student._id) {
           continue;
         }
-
+        
         // Fetch full user to check access status
         const fullUser = await User.findById(student._id);
         if (!fullUser) {

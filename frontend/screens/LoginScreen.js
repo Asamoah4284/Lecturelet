@@ -157,6 +157,8 @@ const LoginScreen = ({ navigation }) => {
                   placeholder="Enter your password"
                   placeholderTextColor="#9ca3af"
                   secureTextEntry={!showPassword}
+                  autoComplete="off"
+                  textContentType="none"
                   value={password}
                   onChangeText={(text) => {
                     setPassword(text);

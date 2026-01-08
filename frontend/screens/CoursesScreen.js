@@ -52,18 +52,8 @@ const CoursesScreen = ({ navigation }) => {
         return;
       }
 
-      // Check user role before making API call
-      const userDataString = await AsyncStorage.getItem('@user_data');
-      if (userDataString) {
-        const userData = JSON.parse(userDataString);
-        if (userData.role !== 'course_rep') {
-          // User is not a course rep, don't make the API call
-          setLoading(false);
-          setRefreshing(false);
-          return;
-        }
-      }
-
+      // Let backend handle authorization - don't block based on cached role
+      // This allows users who just switched roles to access features immediately
       const response = await fetch(getApiUrl('courses/my-courses'), {
         method: 'GET',
         headers: {
@@ -76,8 +66,11 @@ const CoursesScreen = ({ navigation }) => {
       if (response.ok && data.success) {
         setCourses(data.data.courses || []);
       } else {
-        // Only log error if it's not a permission error (403)
-        if (response.status !== 403) {
+        // Handle permission errors gracefully
+        if (response.status === 403) {
+          // User doesn't have course_rep role, show empty state
+          setCourses([]);
+        } else {
           console.error('Error loading courses:', data.message);
         }
       }

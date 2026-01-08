@@ -36,7 +36,7 @@ const SettingsContent = ({ navigation }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [trialStatus, setTrialStatus] = useState(null);
   
-  // Payment states
+  // Accesstates
   const [showPayment, setShowPayment] = useState(false);
   const [paymentData, setPaymentData] = useState(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
@@ -134,7 +134,7 @@ const SettingsContent = ({ navigation }) => {
         // Update trial status
         const status = getTrialStatus(user);
         setTrialStatus(status);
-        // Update AsyncStorage with latest user data including payment status and trial info
+        // Update AsyncStorage with latest user data including Access status and trial info
         await AsyncStorage.setItem('@user_data', JSON.stringify(user));
       }
     } catch (error) {
@@ -541,10 +541,10 @@ const SettingsContent = ({ navigation }) => {
       if (verifyResponse.ok && verifyData.success) {
         console.log('Payment verified successfully!');
         
-        // Update payment status immediately for instant UI feedback
+        // Update Access status immediately for instant UI feedback
         setPaymentStatus(true);
         
-        // Update AsyncStorage immediately with payment status
+        // Update AsyncStorage immediately with Access status
         const userDataString = await AsyncStorage.getItem('@user_data');
         if (userDataString) {
           const userData = JSON.parse(userDataString);
@@ -552,7 +552,7 @@ const SettingsContent = ({ navigation }) => {
           await AsyncStorage.setItem('@user_data', JSON.stringify(userData));
         }
         
-        // Update user data from backend to reflect payment status (this will refresh the UI)
+        // Update user data from backend to reflect Access status (this will refresh the UI)
         await loadUserData();
         
         // Clear payment data
@@ -560,12 +560,12 @@ const SettingsContent = ({ navigation }) => {
         setIsProcessingPayment(false);
         
         Alert.alert(
-          'Payment Successful! 🎉',
-          `Your payment of GH₵${paymentData.amount} has been processed successfully! Your payment status has been updated.`,
+          'Accessuccessful! 🎉',
+          `Your payment of GH₵${paymentData.amount} has been processed successfully! Your Access status has been updated.`,
           [{ 
             text: 'OK',
             onPress: () => {
-              // Payment status is already updated, UI will show "Paid" status
+              // Access status is already updated, UI will show "Paid" status
             }
           }]
         );
@@ -574,7 +574,7 @@ const SettingsContent = ({ navigation }) => {
         setIsProcessingPayment(false);
         Alert.alert(
           'Payment Verification Failed', 
-          verifyData.error || verifyData.message || verifyData.details || 'Payment verification failed. The payment may still be processing. Please check your payment status in a few moments.',
+          verifyData.error || verifyData.message || verifyData.details || 'Payment verification failed. The payment may still be processing. Please check your Access status in a few moments.',
           [
             { text: 'Cancel', style: 'cancel' },
             { 
@@ -674,7 +674,7 @@ const SettingsContent = ({ navigation }) => {
       const data = JSON.parse(event.nativeEvent.data);
       
       if (data.status === 'success') {
-        console.log('Payment success message received, verifying automatically...');
+        console.log('Accessuccess message received, verifying automatically...');
         // Close payment modal immediately
         setShowPayment(false);
         setIsProcessingPayment(true);
@@ -804,128 +804,16 @@ const SettingsContent = ({ navigation }) => {
           )}
         </View>
 
-        {/* Payment Section - Only show for authenticated students (hide for guests + course reps) */}
-        {isAuthenticated && userRole === 'student' && (
+        {/* Accessection - Only show for authenticated students (hide for guests + course reps) */}
+        {isAuthenticated && userRole === 'student' && userRole !== 'course_rep' && userRole !== '' && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Payment</Text>
+          <Text style={styles.sectionTitle}>Account Services</Text>
 
-            {/* Payment/Trial Status */}
-          <View style={styles.settingItem}>
-            <View style={styles.settingLeft}>
-              <Ionicons 
-                  name={
-                    paymentStatus 
-                      ? "checkmark-circle" 
-                      : trialStatus?.isActive 
-                      ? "gift" 
-                      : "alert-circle"
-                  } 
-                size={20} 
-                  color={
-                    paymentStatus 
-                      ? "#22c55e" 
-                      : trialStatus?.isActive 
-                      ? "#2563eb" 
-                      : "#f59e0b"
-                  } 
-              />
-              <View style={styles.settingInfo}>
-                  <Text style={styles.settingLabel}>
-                    {paymentStatus ? 'Payment Status' : trialStatus?.isActive ? 'Free Trial Status' : 'Payment Status'}
-                  </Text>
-                <Text style={[styles.settingDescription, paymentStatus && styles.paymentStatusPaid]}>
-                    {paymentStatus 
-                      ? 'Paid' 
-                      : trialStatus?.isActive 
-                      ? `Free Trial Active - ${trialStatus.daysRemaining} ${trialStatus.daysRemaining === 1 ? 'day' : 'days'} remaining`
-                      : trialStatus?.isExpired
-                      ? 'Trial Expired - Payment required to continue'
-                      : 'Not Paid - Payment required for course enrollment'}
-                </Text>
-              </View>
-            </View>
-            {paymentStatus && (
-              <View style={styles.paidBadge}>
-                <Ionicons name="checkmark" size={16} color="#ffffff" />
-                <Text style={styles.paidBadgeText}>Paid</Text>
-              </View>
-            )}
-              {!paymentStatus && trialStatus?.isActive && (
-                <View style={styles.trialBadge}>
-                  <Ionicons name="gift" size={16} color="#ffffff" />
-                  <Text style={styles.trialBadgeText}>Trial</Text>
-                </View>
-              )}
-          </View>
-
-            {/* Trial Information Card */}
-            {isAuthenticated && !paymentStatus && (
-              <View style={styles.trialInfoCard}>
-                <View style={styles.trialInfoHeader}>
-                  <Ionicons name="information-circle" size={20} color="#2563eb" />
-                  <Text style={styles.trialInfoCardTitle}>About Your Free Trial</Text>
-                </View>
-                {trialStatus?.isActive ? (
-                  <>
-                    <Text style={styles.trialInfoCardText}>
-                      You're currently enjoying your 7-day free trial with full access to all features.
-                    </Text>
-                    <Text style={styles.trialInfoCardText}>
-                      Your trial ends in {trialStatus.daysRemaining} {trialStatus.daysRemaining === 1 ? 'day' : 'days'}. Make a payment before it ends to continue receiving notifications and enrolling in courses.
-                    </Text>
-                  </>
-                ) : trialStatus?.isExpired ? (
-                  <>
-                    <Text style={styles.trialInfoCardText}>
-                      Your 7-day free trial has ended. To continue using the app:
-                    </Text>
-                    <View style={styles.trialInfoList}>
-                      <View style={styles.trialInfoListItem}>
-                        <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
-                        <Text style={styles.trialInfoListItemText}>Make a payment (GH₵20)</Text>
-                      </View>
-                      <View style={styles.trialInfoListItem}>
-                        <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
-                        <Text style={styles.trialInfoListItemText}>Continue receiving notifications</Text>
-                      </View>
-                      <View style={styles.trialInfoListItem}>
-                        <Ionicons name="checkmark-circle" size={16} color="#22c55e" />
-                        <Text style={styles.trialInfoListItemText}>Enroll in new courses</Text>
-                      </View>
-                    </View>
-                  </>
-                ) : (
-                  <>
-                    <Text style={styles.trialInfoCardText}>
-                      When you enroll in your first course, you'll automatically start a 7-day free trial with full access to all features.
-                    </Text>
-                    <Text style={styles.trialInfoCardText}>
-                      After 7 days, payment (GH₵20) is required to continue receiving notifications and enrolling in courses.
-                    </Text>
-                  </>
-                )}
-              </View>
-            )}
-
-          {!paymentStatus && (
-            <>
-                {!isAuthenticated && (
-                  <View style={styles.guestPaymentPrompt}>
-                    <Ionicons name="information-circle-outline" size={20} color="#2563eb" />
-                    <Text style={styles.guestPaymentPromptText}>
-                      Sign up to make payments and enroll in courses
-                    </Text>
-                  </View>
-                )}
               <View style={styles.settingItem}>
                 <View style={styles.settingLeft}>
-                  <Ionicons name="card-outline" size={20} color="#6b7280" />
-                  <View style={styles.settingInfo}>
-                    <Text style={styles.settingLabel}>Make Payment</Text>
-                    <Text style={styles.settingDescription}>
-                      Pay GH₵{FIXED_PAYMENT_AMOUNT} for course enrollment and services
-                    </Text>
-                  </View>
+                <Text style={styles.settingDescription}>
+                  Lecturelet provides optional administrative and communication services such as SMS notifications, account handling, and data management related to institutional use.
+                </Text>
                 </View>
               </View>
 
@@ -961,13 +849,11 @@ const SettingsContent = ({ navigation }) => {
                 {isProcessingPayment ? (
                   <ActivityIndicator size="small" color="#ffffff" />
                 ) : (
-                  <Text style={styles.payButtonText}>Pay GH₵{FIXED_PAYMENT_AMOUNT}</Text>
+                  <Text style={styles.payButtonText}>Get Access</Text>
                 )}
               </TouchableOpacity>
-            </>
+            </View>
           )}
-        </View>
-        )}
 
         {/* Support Section */}
         <View style={styles.section}>
@@ -1152,7 +1038,7 @@ const SettingsContent = ({ navigation }) => {
               <TouchableOpacity onPress={handlePaymentCancel} style={styles.paymentCloseButton}>
                 <Ionicons name="close" size={24} color="#111827" />
               </TouchableOpacity>
-              <Text style={styles.paymentTitle}>Complete Payment</Text>
+              <Text style={styles.paymentTitle}>Get Access</Text>
               <View style={styles.paymentCloseButton} />
             </View>
 
@@ -1212,10 +1098,10 @@ const SettingsContent = ({ navigation }) => {
                     }
                     
                     // Check for success text in page content (Paystack success page)
-                    if (bodyText.includes('payment successful') || 
+                    if (bodyText.includes('Accessuccessful') || 
                         bodyText.includes('transaction successful') ||
                         bodyText.includes('you paid') ||
-                        bodyHTML.includes('payment successful') ||
+                        bodyHTML.includes('Accessuccessful') ||
                         bodyHTML.includes('transaction successful') ||
                         document.querySelector('[class*="success"]') ||
                         document.querySelector('[id*="success"]')) {

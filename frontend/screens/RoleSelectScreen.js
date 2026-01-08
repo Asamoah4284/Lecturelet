@@ -74,8 +74,26 @@ const RoleSelectScreen = ({ navigation, route }) => {
       }
 
       if (data.success && data.data) {
-        // Update stored user data
+        // Update stored user data with fresh data from backend
         await AsyncStorage.setItem('@user_data', JSON.stringify(data.data.user));
+
+        // Fetch fresh user data from backend to ensure role is updated
+        try {
+          const profileResponse = await fetch(getApiUrl('auth/profile'), {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          });
+          
+          const profileData = await profileResponse.json();
+          if (profileResponse.ok && profileData.success && profileData.data.user) {
+            // Update with latest user data including role
+            await AsyncStorage.setItem('@user_data', JSON.stringify(profileData.data.user));
+          }
+        } catch (profileError) {
+          console.log('Error fetching fresh profile, using data from role update:', profileError);
+        }
 
         // Navigate to appropriate screen based on new role
         const targetScreen = role === 'rep' ? 'CourseRep' : 'StudentHome';

@@ -141,9 +141,9 @@ app.use(cors({
 
 ## Frontend Implementation
 
-### 1. Payment Screen Component Structure
+### 1. Accesscreen Component Structure
 
-The main payment screen (`PromoteStoreScreen.js`) follows this structure:
+The main Accesscreen (`PromoteStoreScreen.js`) follows this structure:
 
 ```javascript
 import React, { useState } from 'react';
@@ -216,7 +216,7 @@ const PromoteStoreScreen = () => {
     }
   };
 
-  // Payment success handler
+  // Accessuccess handler
   const handlePaymentSuccess = async (response) => {
     setShowPayment(false);
     setIsProcessingPayment(true);
@@ -250,7 +250,7 @@ const PromoteStoreScreen = () => {
 
       if (verifyResponse.ok && verifyData.success) {
         Alert.alert(
-          'Payment Successful! 🎉',
+          'Accessuccessful! 🎉',
           `${paymentData.plan.name} has been activated successfully!`,
           [{ text: 'Continue', onPress: () => navigation.goBack() }]
         );
@@ -347,7 +347,7 @@ Key props for the `<Paystack>` component:
 | `billingName` | string | No | Customer name |
 | `reference` | string | Yes | Unique transaction reference from backend |
 | `currency` | string | Yes | Currency code (e.g., "GHS") |
-| `onSuccess` | function | Yes | Callback when payment succeeds |
+| `onSuccess` | function | Yes | Callback when Accessucceeds |
 | `onCancel` | function | Yes | Callback when user cancels |
 | `onError` | function | No | Callback for payment errors |
 | `autoStart` | boolean | No | Auto-start payment (default: false) |
@@ -554,7 +554,7 @@ exports.verifySubscriptionPayment = asyncHandler(async (req, res) => {
           const response = JSON.parse(data);
           
           if (response.status && response.data.status === 'success') {
-            // Payment successful - create promotion request/subscription
+            // Accessuccessful - create promotion request/subscription
             
             // Example: Create promotion request
             const promotionRequest = await PromotionRequest.create({
@@ -737,7 +737,7 @@ app.use('/api/v1/store-promotions', promotionRoutes);
 5. **User Payment**:
    - User selects payment method (card, bank, mobile money, etc.)
    - User completes payment in Paystack interface
-6. **Payment Success**:
+6. **Accessuccess**:
    - Paystack calls `onSuccess` callback
    - Frontend extracts payment reference
    - Frontend calls `/api/v1/store-promotions/verify-payment`
@@ -937,7 +937,7 @@ Paystack provides test cards for testing:
 - [ ] Payment initialization succeeds
 - [ ] Paystack modal appears correctly
 - [ ] Payment can be cancelled
-- [ ] Payment success callback works
+- [ ] Accessuccess callback works
 - [ ] Payment reference is extracted correctly
 - [ ] Payment verification succeeds
 - [ ] Subscription/promotion is created after payment
@@ -953,7 +953,7 @@ Paystack provides test cards for testing:
 **Issue**: "Invalid public key" error
 - **Solution**: Verify `PAYSTACK_PUBLIC_KEY` is correctly set in `app.json` and accessed via `Constants.expoConfig`
 
-**Issue**: Payment succeeds but verification fails
+**Issue**: Accessucceeds but verification fails
 - **Solution**: Check that reference is correctly extracted and passed to verification endpoint
 
 **Issue**: Amount mismatch

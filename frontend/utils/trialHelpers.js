@@ -32,7 +32,7 @@ export const getDaysRemaining = (trialEndDate) => {
 
 /**
  * Check if user has active access (payment OR active trial)
- * @param {boolean} paymentStatus - User's payment status
+ * @param {boolean} paymentStatus - User's Access status
  * @param {string|Date} trialEndDate - Trial end date
  * @returns {boolean} True if user has active access
  */

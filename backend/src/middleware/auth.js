@@ -69,9 +69,10 @@ const optionalAuth = async (req, res, next) => {
 
 /**
  * Role-based authorization middleware
+ * Fetches fresh user data from database to ensure role is up-to-date
  */
 const authorize = (...roles) => {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({
         success: false,
@@ -79,14 +80,35 @@ const authorize = (...roles) => {
       });
     }
 
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({
+    try {
+      // Fetch fresh user data from database to get current role
+      // This ensures that if a user switches roles, the change is reflected immediately
+      const user = await User.findById(req.user.id).select('-password');
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message: 'User not found.',
+        });
+      }
+
+      // Update req.user with fresh data
+      req.user = user.toPublicJSON();
+
+      if (!roles.includes(user.role)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. Insufficient permissions.',
+        });
+      }
+
+      next();
+    } catch (error) {
+      console.error('Authorization error:', error);
+      return res.status(500).json({
         success: false,
-        message: 'Access denied. Insufficient permissions.',
+        message: 'Authorization check failed.',
       });
     }
-
-    next();
   };
 };
 

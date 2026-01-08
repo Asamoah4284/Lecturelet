@@ -209,6 +209,7 @@ router.put(
   [
     body('notificationsEnabled').optional().isBoolean(),
     body('reminderMinutes').optional().isInt({ min: 0, max: 120 }),
+    body('role').optional().isIn(['student', 'course_rep']),
   ],
   validate,
   async (req, res) => {
@@ -222,7 +223,7 @@ router.put(
         });
       }
 
-      const { notificationsEnabled, reminderMinutes } = req.body;
+      const { notificationsEnabled, reminderMinutes, role } = req.body;
 
       if (notificationsEnabled !== undefined) {
         user.notificationsEnabled = notificationsEnabled;
@@ -230,8 +231,13 @@ router.put(
       if (reminderMinutes !== undefined) {
         user.reminderMinutes = reminderMinutes;
       }
+      if (role !== undefined) {
+        console.log(`Updating user ${user._id} role from ${user.role} to ${role}`);
+        user.role = role;
+      }
 
       await user.save();
+      console.log(`User ${user._id} saved successfully with role: ${user.role}`);
 
       res.json({
         success: true,

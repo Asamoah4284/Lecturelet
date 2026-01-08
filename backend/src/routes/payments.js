@@ -49,7 +49,7 @@ router.post(
       if (!process.env.PAYSTACK_SECRET_KEY) {
         return res.status(500).json({
           success: false,
-          error: 'Payment service is not configured. Please contact support.',
+          error: 'Accesservice is not configured. Please contact support.',
         });
       }
 
@@ -210,7 +210,7 @@ const processSuccessfulPayment = async (reference, userId = null) => {
             });
 
             if (response.status && response.data && response.data.status === 'success') {
-              // Payment successful
+              // Accessuccessful
               console.log(`Payment ${reference} verified as successful by Paystack`);
               
               // SECURITY: Verify the amount paid matches our expected fixed amount
@@ -239,13 +239,13 @@ const processSuccessfulPayment = async (reference, userId = null) => {
                 console.error(`Error saving payment ${reference}:`, saveError);
                 resolve({
                   success: false,
-                  error: 'Failed to save payment status',
+                  error: 'Failed to save Access status',
                   details: saveError.message,
                 });
                 return;
               }
 
-              // Update user payment status
+              // Update user Access status
               const userIdToUpdate = userId || payment.userId;
               if (userIdToUpdate) {
                 try {
@@ -253,12 +253,12 @@ const processSuccessfulPayment = async (reference, userId = null) => {
                   if (user) {
                     user.paymentStatus = true;
                     await user.save();
-                    console.log(`Payment status updated for user: ${userIdToUpdate}`);
+                    console.log(`Access status updated for user: ${userIdToUpdate}`);
                   } else {
-                    console.warn(`User ${userIdToUpdate} not found when updating payment status`);
+                    console.warn(`User ${userIdToUpdate} not found when updating Access status`);
                   }
                 } catch (userError) {
-                  console.error(`Error updating user payment status for ${userIdToUpdate}:`, userError);
+                  console.error(`Error updating user Access status for ${userIdToUpdate}:`, userError);
                   // Don't fail the whole process if user update fails
                 }
               }
@@ -351,7 +351,7 @@ router.post(
       if (!process.env.PAYSTACK_SECRET_KEY) {
         return res.status(500).json({
           success: false,
-          error: 'Payment service is not configured. Please contact support.',
+          error: 'Accesservice is not configured. Please contact support.',
         });
       }
 
@@ -430,7 +430,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
     // Handle successful payment event
     if (event.event === 'charge.success' || event.event === 'transaction.success') {
       const reference = event.data.reference;
-      console.log(`Webhook received: Payment successful for reference ${reference}`);
+      console.log(`Webhook received: Accessuccessful for reference ${reference}`);
 
       // Process payment automatically
       const result = await processSuccessfulPayment(reference);

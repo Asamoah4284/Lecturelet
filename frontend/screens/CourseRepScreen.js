@@ -44,9 +44,10 @@ const CourseRepScreen = ({ navigation }) => {
     loadCourses();
   }, []);
 
-  // Reload courses when screen comes into focus
+  // Reload courses and user data when screen comes into focus
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
+      loadUserData();
       loadCourses();
     });
     return unsubscribe;
@@ -61,11 +62,42 @@ const CourseRepScreen = ({ navigation }) => {
         return;
       }
 
-      const userDataString = await AsyncStorage.getItem('@user_data');
-      if (userDataString) {
-        const userData = JSON.parse(userDataString);
-        if (userData.full_name) {
-          setUserName(userData.full_name);
+      // Fetch fresh user data from backend to get latest role
+      try {
+        const response = await fetch(getApiUrl('auth/profile'), {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        const data = await response.json();
+        if (response.ok && data.success && data.data.user) {
+          const userData = data.data.user;
+          // Update AsyncStorage with fresh data
+          await AsyncStorage.setItem('@user_data', JSON.stringify(userData));
+          if (userData.full_name) {
+            setUserName(userData.full_name);
+          }
+        } else {
+          // Fallback to AsyncStorage if backend fetch fails
+          const userDataString = await AsyncStorage.getItem('@user_data');
+          if (userDataString) {
+            const userData = JSON.parse(userDataString);
+            if (userData.full_name) {
+              setUserName(userData.full_name);
+            }
+          }
+        }
+      } catch (fetchError) {
+        // Fallback to AsyncStorage if network error
+        console.log('Error fetching user data from backend, using cached data:', fetchError);
+        const userDataString = await AsyncStorage.getItem('@user_data');
+        if (userDataString) {
+          const userData = JSON.parse(userDataString);
+          if (userData.full_name) {
+            setUserName(userData.full_name);
+          }
         }
       }
     } catch (error) {
@@ -85,18 +117,8 @@ const CourseRepScreen = ({ navigation }) => {
       }
       setIsAuthenticated(true);
 
-      // Check user role before making API call
-      const userDataString = await AsyncStorage.getItem('@user_data');
-      if (userDataString) {
-        const userData = JSON.parse(userDataString);
-        if (userData.role !== 'course_rep') {
-          // User is not a course rep, don't make the API call
-          setLoading(false);
-          setRefreshing(false);
-          return;
-        }
-      }
-
+      // Let backend handle authorization - don't block based on cached role
+      // This allows users who just switched roles to access features immediately
       const response = await fetch(getApiUrl('courses/my-courses'), {
         method: 'GET',
         headers: {
@@ -109,8 +131,11 @@ const CourseRepScreen = ({ navigation }) => {
       if (response.ok && data.success) {
         setCourses(data.data.courses || []);
       } else {
-        // Only log error if it's not a permission error (403)
-        if (response.status !== 403) {
+        // Handle permission errors gracefully
+        if (response.status === 403) {
+          // User doesn't have course_rep role, show empty state
+          setCourses([]);
+        } else {
           console.error('Error loading courses:', data.message);
         }
       }

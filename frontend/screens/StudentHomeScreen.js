@@ -69,21 +69,66 @@ const StudentHomeScreen = ({ navigation }) => {
         return;
       }
       
-      const userDataString = await AsyncStorage.getItem('@user_data');
-      if (userDataString) {
-        const userData = JSON.parse(userDataString);
-        setUserData(userData);
-        if (userData.full_name) {
-          setUserName(userData.full_name);
+      // Fetch fresh user data from backend to get latest role
+      try {
+        const response = await fetch(getApiUrl('auth/profile'), {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        const data = await response.json();
+        if (response.ok && data.success && data.data.user) {
+          const userData = data.data.user;
+          // Update AsyncStorage with fresh data
+          await AsyncStorage.setItem('@user_data', JSON.stringify(userData));
+          setUserData(userData);
+          if (userData.full_name) {
+            setUserName(userData.full_name);
+          } else {
+            setUserName('Student');
+          }
+          const status = getTrialStatus(userData);
+          setTrialStatus(status);
+        } else {
+          // Fallback to AsyncStorage if backend fetch fails
+          const userDataString = await AsyncStorage.getItem('@user_data');
+          if (userDataString) {
+            const userData = JSON.parse(userDataString);
+            setUserData(userData);
+            if (userData.full_name) {
+              setUserName(userData.full_name);
+            } else {
+              setUserName('Student');
+            }
+            const status = getTrialStatus(userData);
+            setTrialStatus(status);
+          } else {
+            setUserName('Student');
+            setTrialStatus(null);
+            setUserData(null);
+          }
+        }
+      } catch (fetchError) {
+        // Fallback to AsyncStorage if network error
+        console.log('Error fetching user data from backend, using cached data:', fetchError);
+        const userDataString = await AsyncStorage.getItem('@user_data');
+        if (userDataString) {
+          const userData = JSON.parse(userDataString);
+          setUserData(userData);
+          if (userData.full_name) {
+            setUserName(userData.full_name);
+          } else {
+            setUserName('Student');
+          }
+          const status = getTrialStatus(userData);
+          setTrialStatus(status);
         } else {
           setUserName('Student');
+          setTrialStatus(null);
+          setUserData(null);
         }
-        const status = getTrialStatus(userData);
-        setTrialStatus(status);
-      } else {
-        setUserName('Student');
-        setTrialStatus(null);
-        setUserData(null);
       }
     } catch (error) {
       console.error('Error loading user data:', error);

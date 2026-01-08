@@ -44,7 +44,7 @@ const StudentAddCourseScreen = ({ navigation }) => {
     return `${startTime} - ${endTime}`;
   };
 
-  // Load auth and payment status on mount and when screen comes into focus
+  // Load auth and Access status on mount and when screen comes into focus
   useEffect(() => {
     loadAuthStatus();
     loadUserData();

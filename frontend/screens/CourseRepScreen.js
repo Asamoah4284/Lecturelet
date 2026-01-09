@@ -349,7 +349,7 @@ const CourseRepScreen = ({ navigation }) => {
           <View style={styles.guestBanner}>
             <Ionicons name="information-circle-outline" size={18} color="#2563eb" />
             <Text style={styles.guestBannerText}>
-              Preview mode: sign up to create courses and send notifications.
+              Preview mode: sign up to create lectures and send notifications.
             </Text>
           </View>
         )}
@@ -432,7 +432,7 @@ const CourseRepScreen = ({ navigation }) => {
                 onPress={() => navigation.navigate('Courses')}
               >
                 <Text style={styles.seeMoreText}>
-                  View all {courses.length} courses
+                  View all {courses.length} lectures
                 </Text>
                 <Ionicons name="chevron-forward" size={20} color="#2563eb" />
               </TouchableOpacity>
@@ -449,14 +449,14 @@ const CourseRepScreen = ({ navigation }) => {
                 </View>
               </View>
             </View>
-            <Text style={styles.emptyTitle}>No Courses Published</Text>
+            <Text style={styles.emptyTitle}>No Lectures Published</Text>
             <Text style={styles.emptyDescription}>
               {!isAuthenticated
-                ? "You're in preview mode. Sign up to create your first course."
-                : "You haven't published any courses yet. Create your first course to get started."}
+                ? "You're in preview mode. Sign up to create your first lecture."
+                : "You haven't published any lectures yet. Create your first lecture to get started."}
             </Text>
             <Button
-              title={isAuthenticated ? 'Create Course' : 'Sign Up to Create Course'}
+              title={isAuthenticated ? 'Create Lecture' : 'Sign Up to Create Lecture'}
               onPress={() => {
                 if (!isAuthenticated) {
                   requireAuth('Please sign up to create a course.');

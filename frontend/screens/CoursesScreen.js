@@ -680,7 +680,7 @@ const CoursesScreen = ({ navigation }) => {
       >
         {/* Section Header */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>My Courses</Text>
+          <Text style={styles.sectionTitle}>My Lectures</Text>
           <TouchableOpacity
             style={styles.addButton}
             onPress={() => navigation.navigate('AddCourse')}
@@ -1177,12 +1177,12 @@ const CoursesScreen = ({ navigation }) => {
                 </View>
               </View>
             </View>
-            <Text style={styles.emptyTitle}>No Courses Published</Text>
+            <Text style={styles.emptyTitle}>No Lectures Published</Text>
             <Text style={styles.emptyDescription}>
-              You haven't published any courses yet. Create your first course to get started.
+              You haven't published any lectures yet. Create your first lecture to get started.
             </Text>
             <Button
-              title="Create Course"
+              title="Create Lecture"
               onPress={() => navigation.navigate('AddCourse')}
               variant="primary"
               style={styles.createButton}

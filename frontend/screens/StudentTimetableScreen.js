@@ -158,9 +158,9 @@ const StudentTimetableScreen = ({ navigation }) => {
         ) : courses.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="calendar-outline" size={48} color="#2563eb" />
-            <Text style={styles.emptyTitle}>No Enrolled Courses</Text>
+            <Text style={styles.emptyTitle}>No Enrolled Lectures</Text>
             <Text style={styles.emptyDescription}>
-              Enroll in courses to see them arranged in your timetable.
+              Enroll in lectures to see them arranged in your timetable.
             </Text>
             <TouchableOpacity
               style={styles.primaryButton}
@@ -174,7 +174,7 @@ const StudentTimetableScreen = ({ navigation }) => {
             <View style={styles.pageTitle}>
               <Text style={styles.timetableTitle}>Weekly Timetable</Text>
               <Text style={styles.timetableSub}>
-                {courses.length} {courses.length === 1 ? 'course enrolled' : 'courses enrolled'}
+                {courses.length} {courses.length === 1 ? 'lecture enrolled' : 'lectures enrolled'}
               </Text>
             </View>
 

@@ -146,7 +146,7 @@ const StudentAddCourseScreen = ({ navigation }) => {
           const errorMessages = data.errors.map(err => err.message || err.msg).join(', ');
           throw new Error(errorMessages || data.message || 'Validation failed');
         }
-        throw new Error(data.message || 'Course not found. Please check the code and try again.');
+        throw new Error(data.message || 'Lecture not found. Please check the code and try again.');
       }
 
       if (data.success && data.data) {
@@ -317,7 +317,7 @@ const StudentAddCourseScreen = ({ navigation }) => {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#ffffff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Add Course</Text>
+        <Text style={styles.headerTitle}>Add Lecture</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -362,7 +362,7 @@ const StudentAddCourseScreen = ({ navigation }) => {
         {/* Course Details Card */}
         {course && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Course Details</Text>
+            <Text style={styles.sectionTitle}>Lecture Details</Text>
             <View style={styles.courseCard}>
               <View style={styles.courseContent}>
                 <View style={styles.courseHeader}>
@@ -451,7 +451,7 @@ const StudentAddCourseScreen = ({ navigation }) => {
                     ? 'Start Your 7-Day Free Trial'
                     : !hasActiveAccess(hasPaid, trialStatus?.trialEndDate) && enrollmentCount > 0
                     ? 'Payment Required'
-                    : 'Enroll in Course'
+                    : 'Enroll in Lecture'
                 }
                 onPress={
                   !isAuthenticated
@@ -506,7 +506,7 @@ const StudentAddCourseScreen = ({ navigation }) => {
                 <View style={styles.trialFeaturesList}>
                   <View style={styles.trialFeatureItem}>
                     <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
-                    <Text style={styles.trialFeatureText}>Enroll in unlimited courses</Text>
+                    <Text style={styles.trialFeatureText}>Enroll in unlimited lectures</Text>
                   </View>
                   <View style={styles.trialFeatureItem}>
                     <Ionicons name="checkmark-circle" size={20} color="#22c55e" />

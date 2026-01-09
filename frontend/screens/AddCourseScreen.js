@@ -308,11 +308,11 @@ const AddCourseScreen = ({ navigation, route }) => {
 
   const validateForm = () => {
     if (!courseName.trim()) {
-      Alert.alert('Validation Error', 'Please enter a course name');
+      Alert.alert('Validation Error', 'Please enter a lecture name');
       return false;
     }
     if (!courseCode.trim()) {
-      Alert.alert('Validation Error', 'Please enter a course code');
+      Alert.alert('Validation Error', 'Please enter a lecture code');
       return false;
     }
     if (selectedDays.length === 0) {
@@ -411,7 +411,7 @@ const AddCourseScreen = ({ navigation, route }) => {
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data.message || 'Failed to create course');
+          throw new Error(data.message || 'Failed to create lecture');
         }
 
         if (data.success && data.data?.course) {
@@ -419,7 +419,7 @@ const AddCourseScreen = ({ navigation, route }) => {
           setGeneratedCode(uniqueCode);
           setShowCodeModal(true);
         } else {
-          throw new Error('Failed to create course');
+          throw new Error('Failed to create lecture');
         }
       }
     } catch (error) {
@@ -439,7 +439,7 @@ const AddCourseScreen = ({ navigation, route }) => {
           <Ionicons name="arrow-back" size={24} color="#ffffff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>
-          {editingCourse ? 'Edit Course' : 'Create Course'}
+          {editingCourse ? 'Edit Lecture' : 'Create Lecture'}
         </Text>
         <View style={styles.headerSpacer} />
       </View>
@@ -460,7 +460,7 @@ const AddCourseScreen = ({ navigation, route }) => {
 
         {/* Form Title and Description */}
         <View style={styles.formHeader}>
-          <Text style={styles.formTitle}>Create New Course</Text>
+          <Text style={styles.formTitle}>Create New Lecture</Text>
           <Text style={styles.formDescription}>
             Fill in the details to create a new course
           </Text>
@@ -478,7 +478,7 @@ const AddCourseScreen = ({ navigation, route }) => {
         {/* Form Fields */}
         <View style={styles.form}>
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Course Name</Text>
+            <Text style={styles.label}>Lecture Name</Text>
             <TextInput
               style={styles.input}
               placeholder="e.g., Introduction to Computer Science"
@@ -489,7 +489,7 @@ const AddCourseScreen = ({ navigation, route }) => {
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Course Code</Text>
+            <Text style={styles.label}>Lecture Code</Text>
             <TextInput
               style={styles.input}
               placeholder="e.g., CS101"
@@ -706,9 +706,9 @@ const AddCourseScreen = ({ navigation, route }) => {
                   ? 'Updating...'
                   : 'Creating...'
                 : editingCourse
-                ? 'Update Course'
+                ? 'Update Lecture'
                 : isAuthenticated
-                ? 'Create Course'
+                ? 'Create Lecture'
                 : 'Sign Up to Publish'
             }
             onPress={() => {
@@ -726,7 +726,7 @@ const AddCourseScreen = ({ navigation, route }) => {
       </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Course Code Modal */}
+      {/* Lecture Code Modal */}
       <Modal
         visible={showCodeModal}
         transparent={true}
@@ -744,7 +744,7 @@ const AddCourseScreen = ({ navigation, route }) => {
             </View>
 
             <View style={styles.codeContainer}>
-              <Text style={styles.codeLabel}>Course Code</Text>
+              <Text style={styles.codeLabel}>Lecture Code</Text>
               <TouchableOpacity
                 style={styles.codeBox}
                 onPress={() => copyToClipboard(generatedCode)}

@@ -250,7 +250,7 @@ const RoleSelectScreen = ({ navigation, route }) => {
             <View style={styles.roleTextArea}>
               <Text style={styles.roleTitle}>Student</Text>
               <Text style={styles.roleBody}>
-                Join courses, view timetables, and receive notifications for
+                Join lectures, view timetables, and receive notifications for
                 your lectures.
               </Text>
             </View>
@@ -273,7 +273,7 @@ const RoleSelectScreen = ({ navigation, route }) => {
             <View style={styles.roleTextArea}>
               <Text style={styles.roleTitle}>Course Representative</Text>
               <Text style={styles.roleBody}>
-                Create and manage courses, and generate course codes for
+                Create and manage lectures, and generate lecture codes for
                 students.
               </Text>
             </View>

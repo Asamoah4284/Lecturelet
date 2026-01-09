@@ -338,7 +338,7 @@ const StudentCoursesScreen = ({ navigation }) => {
           <Ionicons name="search-outline" size={20} color="#9ca3af" style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search your enrolled courses..."
+            placeholder="Search your enrolled lectures..."
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholderTextColor="#9ca3af"
@@ -359,8 +359,8 @@ const StudentCoursesScreen = ({ navigation }) => {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {/* My Courses Section */}
-        <Text style={styles.sectionTitle}>My Courses</Text>
+        {/* My Lectures Section */}
+        <Text style={styles.sectionTitle}>My Lectures</Text>
 
         {/* Filter Tabs */}
         {!loading && enrolledCourses.length > 0 && (
@@ -379,7 +379,7 @@ const StudentCoursesScreen = ({ navigation }) => {
                   selectedFilter === 'courses' && styles.filterTabTextActive
                 ]}
               >
-                Courses
+                Lectures
               </Text>
               {enrolledCourses.length > 0 && (
                 <View style={styles.filterTabBadge}>
@@ -590,7 +590,7 @@ const StudentCoursesScreen = ({ navigation }) => {
                   No {selectedFilter === 'quizzes' ? 'Quizzes' : selectedFilter === 'tutorials' ? 'Tutorials' : 'Assignments'}
                 </Text>
                 <Text style={styles.emptyDescription}>
-                  You don't have any {selectedFilter === 'quizzes' ? 'quizzes' : selectedFilter === 'tutorials' ? 'tutorials' : 'assignments'} for your enrolled courses.
+                  You don't have any {selectedFilter === 'quizzes' ? 'quizzes' : selectedFilter === 'tutorials' ? 'tutorials' : 'assignments'} for your enrolled lectures.
                 </Text>
               </View>
             )}
@@ -604,7 +604,7 @@ const StudentCoursesScreen = ({ navigation }) => {
             </View>
             <Text style={styles.emptyTitle}>Preview Mode</Text>
             <Text style={styles.emptyDescription}>
-              You're browsing as a guest. Search for courses and preview them, but sign up to enroll and access all features.
+              You're browsing as a guest. Search for Lectures and preview them, but sign up to enroll and access all features.
             </Text>
             <Button
               title="Sign Up"
@@ -682,9 +682,9 @@ const StudentCoursesScreen = ({ navigation }) => {
           </View>
         ) : searchQuery.trim() ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>No Courses Found</Text>
+            <Text style={styles.emptyTitle}>No Lectures Found</Text>
             <Text style={styles.emptyDescription}>
-              No courses match your search query. Try a different search term.
+              No lectures match your search query. Try a different search term.
             </Text>
           </View>
         ) : (
@@ -697,12 +697,12 @@ const StudentCoursesScreen = ({ navigation }) => {
                 </View>
               </View>
             </View>
-            <Text style={styles.emptyTitle}>No Enrolled Courses</Text>
+            <Text style={styles.emptyTitle}>No Enrolled Lectures</Text>
             <Text style={styles.emptyDescription}>
-              You haven't enrolled in any courses yet. Add a course to get started.
+              You haven't enrolled in any lectures yet. Add a lecture to get started.
             </Text>
             <Button
-              title="Add Course"
+              title="Add Lecture"
               onPress={() => navigation.navigate('StudentAddCourse')}
               variant="primary"
               style={styles.addCourseButton}

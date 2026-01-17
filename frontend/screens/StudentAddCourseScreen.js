@@ -279,6 +279,16 @@ const StudentAddCourseScreen = ({ navigation }) => {
           }
         }
         
+        // Schedule reminders for the newly enrolled course
+        try {
+          const { syncAndScheduleReminders } = require('../services/localReminderService');
+          await syncAndScheduleReminders();
+          console.log('Reminders scheduled for newly enrolled course');
+        } catch (reminderError) {
+          console.error('Error scheduling reminders after enrollment:', reminderError);
+          // Don't block enrollment success if reminder scheduling fails
+        }
+        
         Alert.alert(
           'Success',
           data.message || 'Successfully enrolled in course!',
@@ -327,9 +337,9 @@ const StudentAddCourseScreen = ({ navigation }) => {
       >
         {/* Enter Unique Course Code Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Enter Unique Course Code</Text>
+          <Text style={styles.sectionTitle}>Enter Unique Lecture Code</Text>
           <Text style={styles.sectionDescription}>
-            Enter the unique course code provided by your course representative
+            Enter the unique Lecture code provided by your representative
           </Text>
           <View style={styles.codeInputContainer}>
             <TextInput

@@ -640,7 +640,7 @@ const StudentHomeScreen = ({ navigation }) => {
           }}
         >
           <Ionicons name="book-outline" size={24} color="#6b7280" />
-          <Text style={styles.navLabel}>Courses</Text>
+          <Text style={styles.navLabel}>Lectures</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.navItem}

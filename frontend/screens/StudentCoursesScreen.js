@@ -322,7 +322,7 @@ const StudentCoursesScreen = ({ navigation }) => {
       
       {/* Blue Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Courses</Text>
+        <Text style={styles.headerTitle}>Lectures</Text>
         <TouchableOpacity
           style={styles.timetableButton}
           onPress={() => navigation.navigate('StudentTimetable')}
@@ -725,7 +725,7 @@ const StudentCoursesScreen = ({ navigation }) => {
             <View style={styles.activeNavBorder}>
               <Ionicons name="book" size={24} color="#2563eb" />
             </View>
-            <Text style={[styles.navLabel, styles.navLabelActive]}>Courses</Text>
+            <Text style={[styles.navLabel, styles.navLabelActive]}>Lectures</Text>
           </View>
         </TouchableOpacity>
         <TouchableOpacity

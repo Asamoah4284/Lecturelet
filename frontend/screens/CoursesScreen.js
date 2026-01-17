@@ -1205,7 +1205,7 @@ const CoursesScreen = ({ navigation }) => {
             <Ionicons name="book" size={24} color="#2563eb" />
             <Ionicons name="arrow-up" size={12} color="#2563eb" style={styles.navIconArrow} />
           </View>
-          <Text style={[styles.navLabel, styles.navLabelActive]}>Courses</Text>
+          <Text style={[styles.navLabel, styles.navLabelActive]}>Lectures</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.navItem}

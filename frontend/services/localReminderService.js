@@ -1,4 +1,5 @@
 import * as Notifications from 'expo-notifications';
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApiUrl } from '../config/api';
 
@@ -197,6 +198,30 @@ const scheduleReminderNotification = async ({
       indexRangeText = ` Index: ${indexFrom}.`;
     }
     
+    // Get user's preferred notification sound
+    const soundPreference = await getNotificationSound();
+    
+    // Map sound preference to notification sound value
+    // For Expo notifications:
+    // - iOS: Can use system sound names or custom sound files
+    // - Android: Requires custom sound files in assets
+    // - Use false for silent
+    let notificationSound = true; // Default to system sound
+    
+    if (soundPreference === 'none') {
+      notificationSound = false; // Silent - no sound
+    } else if (soundPreference === 'default') {
+      notificationSound = true; // System default sound
+    } else {
+      // For custom sounds, try to use sound files
+      // If files don't exist, will fall back to default system sound
+      const soundFileName = `${soundPreference}.wav`;
+      
+      // Try to use the custom sound file
+      // Note: If the file doesn't exist, Expo will fall back to default sound
+      notificationSound = soundFileName;
+    }
+    
     const notificationContent = {
       title: 'Class Reminder',
       body: `Your next class, ${courseName}, starts in ${reminderMinutes} minutes.${indexRangeText}`,
@@ -207,7 +232,7 @@ const scheduleReminderNotification = async ({
         source: 'local',
         classDate: classDate.toISOString(),
       },
-      sound: true,
+      sound: notificationSound, // true = plays default system sound loudly
       priority: Notifications.AndroidNotificationPriority.HIGH,
     };
     
@@ -294,6 +319,31 @@ const getUserReminderPreference = async () => {
 };
 
 /**
+ * Get user's notification sound preference
+ * @returns {Promise<string>} Notification sound (default: 'default')
+ */
+const getNotificationSound = async () => {
+  try {
+    // First try to get from AsyncStorage (direct storage)
+    const storedSound = await AsyncStorage.getItem('@notification_sound');
+    if (storedSound) {
+      return storedSound;
+    }
+    
+    // Fall back to user data
+    const userDataString = await AsyncStorage.getItem('@user_data');
+    if (userDataString) {
+      const userData = JSON.parse(userDataString);
+      return userData.notification_sound || 'default';
+    }
+    return 'default';
+  } catch (error) {
+    console.error('Error getting notification sound preference:', error);
+    return 'default';
+  }
+};
+
+/**
  * Check if user has notifications enabled
  * @returns {Promise<boolean>} True if notifications enabled
  */
@@ -322,6 +372,7 @@ export const syncAndScheduleReminders = async (customReminderMinutes = null) => 
     const notificationsEnabled = await areNotificationsEnabled();
     if (!notificationsEnabled) {
       console.log('Notifications disabled, skipping reminder sync');
+      await cancelAllReminders(); // Cancel all if notifications disabled
       return { scheduled: 0, cancelled: 0 };
     }
     
@@ -329,13 +380,6 @@ export const syncAndScheduleReminders = async (customReminderMinutes = null) => 
     const { status } = await Notifications.getPermissionsAsync();
     if (status !== 'granted') {
       console.log('Notification permissions not granted, skipping reminder sync');
-      return { scheduled: 0, cancelled: 0 };
-    }
-    
-    // Fetch enrolled courses
-    const courses = await fetchEnrolledCourses();
-    if (courses.length === 0) {
-      console.log('No enrolled courses found');
       return { scheduled: 0, cancelled: 0 };
     }
     
@@ -350,6 +394,20 @@ export const syncAndScheduleReminders = async (customReminderMinutes = null) => 
       return { scheduled: 0, cancelled: await getScheduledReminderCount() };
     }
     
+    // If customReminderMinutes is provided (settings changed), cancel ALL existing reminders first
+    // This ensures all reminders are rescheduled with the new time
+    if (customReminderMinutes !== null) {
+      console.log(`Reminder time changed to ${customReminderMinutes} minutes, cancelling all existing reminders...`);
+      await cancelAllReminders();
+    }
+    
+    // Fetch enrolled courses
+    const courses = await fetchEnrolledCourses();
+    if (courses.length === 0) {
+      console.log('No enrolled courses found');
+      return { scheduled: 0, cancelled: 0 };
+    }
+    
     let scheduledCount = 0;
     let cancelledCount = 0;
     const now = new Date();
@@ -357,14 +415,14 @@ export const syncAndScheduleReminders = async (customReminderMinutes = null) => 
     // Process each course
     for (const course of courses) {
       try {
-        // Cancel existing reminders for this course
+        // Cancel existing reminders for this course (in case some weren't cancelled above)
         await cancelCourseReminders(course.id || course._id);
         cancelledCount++;
         
         // Calculate upcoming classes
         const upcomingClasses = calculateUpcomingClasses(course, now);
         
-        // Schedule reminders for each upcoming class
+        // Schedule reminders for each upcoming class with the current reminder time
         for (const classInfo of upcomingClasses) {
           const reminderDate = new Date(classInfo.date);
           reminderDate.setMinutes(reminderDate.getMinutes() - reminderMinutes);
@@ -397,7 +455,7 @@ export const syncAndScheduleReminders = async (customReminderMinutes = null) => 
     // Update last sync timestamp
     await AsyncStorage.setItem(LAST_SYNC_KEY, new Date().toISOString());
     
-    console.log(`Reminder sync completed: ${scheduledCount} scheduled, ${cancelledCount} courses processed`);
+    console.log(`Reminder sync completed: ${scheduledCount} scheduled, ${cancelledCount} courses processed with ${reminderMinutes} minute reminder`);
     return { scheduled: scheduledCount, cancelled: cancelledCount };
   } catch (error) {
     console.error('Error syncing reminders:', error);

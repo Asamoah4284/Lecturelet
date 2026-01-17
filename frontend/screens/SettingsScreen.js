@@ -22,11 +22,13 @@ import { getApiUrl, PAYSTACK_PUBLIC_KEY } from '../config/api';
 import { initializeNotifications, removePushToken } from '../services/notificationService';
 import { syncAndScheduleReminders, cancelAllReminders } from '../services/localReminderService';
 import { getTrialStatus } from '../utils/trialHelpers';
+import * as Notifications from 'expo-notifications';
 
 const SettingsContent = ({ navigation }) => {
   const webViewRef = useRef(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [reminderMinutes, setReminderMinutes] = useState('15');
+  const [notificationSound, setNotificationSound] = useState('default');
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [userPhoneNumber, setUserPhoneNumber] = useState('');
@@ -35,6 +37,7 @@ const SettingsContent = ({ navigation }) => {
   const [paymentStatus, setPaymentStatus] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [trialStatus, setTrialStatus] = useState(null);
+  const [showSoundPicker, setShowSoundPicker] = useState(false);
   
   // Accesstates
   const [showPayment, setShowPayment] = useState(false);
@@ -84,6 +87,11 @@ const SettingsContent = ({ navigation }) => {
         setNotificationsEnabled(false);
         setReminderMinutes('15');
         setPaymentStatus(false);
+        // Load sound preference even for guests (stored locally)
+        const storedSound = await AsyncStorage.getItem('@notification_sound');
+        if (storedSound) {
+          setNotificationSound(storedSound);
+        }
         return;
       }
 
@@ -109,6 +117,15 @@ const SettingsContent = ({ navigation }) => {
         if (userData.reminder_minutes !== undefined) {
           setReminderMinutes(String(userData.reminder_minutes));
         }
+        if (userData.notification_sound !== undefined) {
+          setNotificationSound(userData.notification_sound);
+        } else {
+          // Load from AsyncStorage if not in user data
+          const storedSound = await AsyncStorage.getItem('@notification_sound');
+          if (storedSound) {
+            setNotificationSound(storedSound);
+          }
+        }
         if (userData.payment_status !== undefined) {
           setPaymentStatus(userData.payment_status);
         }
@@ -131,6 +148,15 @@ const SettingsContent = ({ navigation }) => {
         setNotificationsEnabled(user.notifications_enabled ?? true);
         setReminderMinutes(String(user.reminder_minutes ?? 15));
         setPaymentStatus(user.payment_status ?? false);
+        // Load notification sound from user data or fallback to AsyncStorage
+        if (user.notification_sound !== undefined) {
+          setNotificationSound(user.notification_sound);
+        } else {
+          const storedSound = await AsyncStorage.getItem('@notification_sound');
+          if (storedSound) {
+            setNotificationSound(storedSound);
+          }
+        }
         // Update trial status
         const status = getTrialStatus(user);
         setTrialStatus(status);
@@ -186,13 +212,21 @@ const SettingsContent = ({ navigation }) => {
           const userData = JSON.parse(userDataString);
           userData.notifications_enabled = notificationsEnabled;
           userData.reminder_minutes = reminderMinutesNum;
+          userData.notification_sound = notificationSound;
           await AsyncStorage.setItem('@user_data', JSON.stringify(userData));
         }
+        
+        // Also store notification sound separately for easy access
+        await AsyncStorage.setItem('@notification_sound', notificationSound);
 
         // Initialize or remove notifications based on preference
         if (notificationsEnabled) {
+          // Recreate Android notification channel with new sound preference
+          const { createNotificationChannel } = require('../services/notificationService');
+          await createNotificationChannel(true); // Force recreate to update sound
+          
           await initializeNotifications();
-          // Rebuild local reminder notifications with new preference
+          // Rebuild local reminder notifications with new preference (will use new sound)
           await syncAndScheduleReminders(reminderMinutesNum);
         } else {
           await removePushToken();
@@ -618,6 +652,62 @@ const SettingsContent = ({ navigation }) => {
   /**
    * Handles feedback submission
    */
+  /**
+   * Preview the selected notification sound by triggering a test notification
+   */
+  const previewNotificationSound = async () => {
+    try {
+      // Get the current sound preference
+      const soundPreference = notificationSound;
+      
+      // Map sound preference to notification sound value
+      let notificationSoundValue = true; // Default to system sound
+      
+      if (soundPreference === 'none') {
+        notificationSoundValue = false; // Silent
+      } else if (soundPreference === 'default') {
+        notificationSoundValue = true; // System default sound
+      } else {
+        // For custom sounds, use the sound file name
+        // If file doesn't exist, will fall back to default sound
+        notificationSoundValue = `${soundPreference}.wav`;
+      }
+      
+      // Check permissions
+      const { status } = await Notifications.getPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permission Required',
+          'Please enable notification permissions to preview sounds.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+      
+      // Ensure Android channel is created with sound enabled
+      if (Platform.OS === 'android') {
+        const { createNotificationChannel } = require('../services/notificationService');
+        await createNotificationChannel(true); // Force recreate to ensure sound is enabled
+      }
+      
+      // Trigger a test notification with the selected sound
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'Sound Preview 🔊',
+          body: soundPreference === 'none' 
+            ? 'This is a silent notification (no sound)' 
+            : `This is how your ${soundPreference} notification will sound - Listen for the sound!`,
+          sound: notificationSoundValue, // true = plays default system sound loudly
+          priority: Notifications.AndroidNotificationPriority.HIGH,
+        },
+        trigger: null, // Show immediately
+      });
+    } catch (error) {
+      console.error('Error previewing notification sound:', error);
+      Alert.alert('Error', 'Failed to preview sound. Please try again.');
+    }
+  };
+
   const handleSubmitFeedback = async () => {
     if (!isAuthenticated) {
       Alert.alert('Sign Up Required', 'Please sign up to submit feedback.', [
@@ -771,36 +861,74 @@ const SettingsContent = ({ navigation }) => {
           </View>
 
           {notificationsEnabled && (
-            <View style={styles.settingItem}>
-              <View style={styles.settingLeft}>
-                <Ionicons name="time-outline" size={20} color="#6b7280" />
-                <View style={styles.settingInfo}>
-                  <Text style={styles.settingLabel}>Remind me before (minutes)</Text>
-                  <Text style={styles.settingDescription}>
-                    How many minutes before class to receive reminder
-                  </Text>
+            <>
+              <View style={styles.settingItem}>
+                <View style={styles.settingLeft}>
+                  <Ionicons name="time-outline" size={20} color="#6b7280" />
+                  <View style={styles.settingInfo}>
+                    <Text style={styles.settingLabel}>Remind me before (minutes)</Text>
+                    <Text style={styles.settingDescription}>
+                      How many minutes before class to receive reminder
+                    </Text>
+                  </View>
                 </View>
+                <TextInput
+                  style={[styles.reminderInput, !isAuthenticated && styles.disabledInput]}
+                  value={reminderMinutes}
+                  onChangeText={(text) => {
+                    if (isAuthenticated) {
+                      setReminderMinutes(text);
+                    } else {
+                      Alert.alert('Sign Up Required', 'Please sign up to change reminder settings.', [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Sign Up', onPress: () => navigation.navigate('Signup') },
+                      ]);
+                    }
+                  }}
+                  keyboardType="numeric"
+                  placeholder="15"
+                  placeholderTextColor="#9ca3af"
+                  maxLength={3}
+                  editable={isAuthenticated}
+                />
               </View>
-              <TextInput
-                style={[styles.reminderInput, !isAuthenticated && styles.disabledInput]}
-                value={reminderMinutes}
-                onChangeText={(text) => {
+
+              <TouchableOpacity
+                style={[styles.settingItem, !isAuthenticated && styles.disabledSettingItem]}
+                onPress={() => {
                   if (isAuthenticated) {
-                    setReminderMinutes(text);
+                    setShowSoundPicker(true);
                   } else {
-                    Alert.alert('Sign Up Required', 'Please sign up to change reminder settings.', [
+                    Alert.alert('Sign Up Required', 'Please sign up to change notification sound.', [
                       { text: 'Cancel', style: 'cancel' },
                       { text: 'Sign Up', onPress: () => navigation.navigate('Signup') },
                     ]);
                   }
                 }}
-                keyboardType="numeric"
-                placeholder="15"
-                placeholderTextColor="#9ca3af"
-                maxLength={3}
-                editable={isAuthenticated}
-              />
-            </View>
+                disabled={!isAuthenticated}
+              >
+                <View style={styles.settingLeft}>
+                  <Ionicons name="musical-notes-outline" size={20} color="#6b7280" />
+                  <View style={styles.settingInfo}>
+                    <Text style={styles.settingLabel}>Notification Sound</Text>
+                    <Text style={styles.settingDescription}>
+                      Choose your preferred notification sound
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.soundValueContainer}>
+                  <Text style={styles.soundValueText}>
+                    {notificationSound === 'default' ? 'Default' :
+                     notificationSound === 'bell' ? 'Bell' :
+                     notificationSound === 'chime' ? 'Chime' :
+                     notificationSound === 'ding' ? 'Ding' :
+                     notificationSound === 'pop' ? 'Pop' :
+                     notificationSound === 'none' ? 'None' : notificationSound}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                </View>
+              </TouchableOpacity>
+            </>
           )}
         </View>
 
@@ -1022,6 +1150,80 @@ const SettingsContent = ({ navigation }) => {
                 )}
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Notification Sound Picker Modal */}
+      <Modal
+        visible={showSoundPicker}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowSoundPicker(false)}
+      >
+        <View style={styles.soundPickerOverlay}>
+          <View style={styles.soundPickerContent}>
+            <View style={styles.soundPickerHeader}>
+              <Text style={styles.soundPickerTitle}>Select Notification Sound</Text>
+              <View style={styles.soundPickerHeaderRight}>
+                <TouchableOpacity
+                  onPress={previewNotificationSound}
+                  style={styles.previewButton}
+                >
+                  <Ionicons name="play-circle-outline" size={20} color="#2563eb" />
+                  <Text style={styles.previewButtonText}>Preview</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setShowSoundPicker(false)}
+                  style={styles.soundPickerCloseButton}
+                >
+                  <Ionicons name="close" size={24} color="#6b7280" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <ScrollView style={styles.soundPickerBody}>
+              {[
+                { value: 'default', label: 'Default', icon: 'notifications-outline' },
+                { value: 'bell', label: 'Bell', icon: 'notifications' },
+                { value: 'chime', label: 'Chime', icon: 'musical-notes' },
+                { value: 'ding', label: 'Ding', icon: 'volume-high' },
+                { value: 'pop', label: 'Pop', icon: 'radio-button-on' },
+                { value: 'none', label: 'None (Silent)', icon: 'volume-mute' },
+              ].map((sound) => (
+                <TouchableOpacity
+                  key={sound.value}
+                  style={[
+                    styles.soundOption,
+                    notificationSound === sound.value && styles.soundOptionSelected,
+                  ]}
+                  onPress={async () => {
+                    setNotificationSound(sound.value);
+                    // Don't close immediately - let user preview if they want
+                    // User can close manually or use preview button
+                  }}
+                >
+                  <View style={styles.soundOptionLeft}>
+                    <Ionicons
+                      name={sound.icon}
+                      size={20}
+                      color={notificationSound === sound.value ? '#2563eb' : '#6b7280'}
+                    />
+                    <Text
+                      style={[
+                        styles.soundOptionLabel,
+                        notificationSound === sound.value && styles.soundOptionLabelSelected,
+                      ]}
+                    >
+                      {sound.label}
+                    </Text>
+                  </View>
+                  {notificationSound === sound.value && (
+                    <Ionicons name="checkmark-circle" size={24} color="#2563eb" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1733,6 +1935,118 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#1e40af',
     fontWeight: '500',
+  },
+  soundValueContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  soundValueText: {
+    fontSize: 13,
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+  disabledSettingItem: {
+    opacity: 0.6,
+  },
+  soundPickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  soundPickerContent: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '70%',
+  },
+  soundPickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  soundPickerHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  previewButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#eff6ff',
+  },
+  previewButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#2563eb',
+  },
+  soundPickerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  soundPickerCloseButton: {
+    padding: 4,
+  },
+  soundPickerBody: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  soundOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginBottom: 8,
+    backgroundColor: '#f9fafb',
+  },
+  soundOptionSelected: {
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#2563eb',
+  },
+  soundOptionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  soundOptionLabel: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#111827',
+  },
+  soundOptionLabelSelected: {
+    color: '#2563eb',
+    fontWeight: '600',
+  },
+  soundPickerFooter: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+  },
+  soundPickerDoneButton: {
+    backgroundColor: '#2563eb',
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  soundPickerDoneButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#ffffff',
   },
 });
 

@@ -373,4 +373,3 @@ export const isPushNotification = (notification) => {
          (data.type === 'course_update' || 
           (data.type === 'lecture_reminder' && data.source !== 'local'));
 };
-

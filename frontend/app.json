@@ -2,7 +2,7 @@
   "expo": {
     "name": "LectureLet",
     "slug": "LectureLet",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./assets/logo-1.png",
@@ -17,7 +17,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.LectureLet.app",
-      "buildNumber": "6",
+      "buildNumber": "9",
       "infoPlist": {
         "UIBackgroundModes": [
           "remote-notification"
@@ -34,7 +34,7 @@
         "backgroundColor": "#6366f1"
       },
       "package": "com.LectureLet.app",
-      "versionCode": 5,
+      "versionCode": 6,
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
@@ -49,13 +49,6 @@
         "expo-notifications",
         {
           "color": "#2563eb",
-          "sounds": [
-            "default.wav",
-            "bell.wav",
-            "chime.wav",
-            "ding.wav",
-            "pop.wav"
-          ],
           "mode": "production",
           "iosDisplayInForeground": true,
           "androidMode": "default",

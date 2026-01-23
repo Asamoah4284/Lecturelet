@@ -32,7 +32,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/logo-1.png",
-        "backgroundColor": "#6366f1"
+        "backgroundColor": "#ffffff"
       },
       "package": "com.LectureLet.app",
       "versionCode": 6,

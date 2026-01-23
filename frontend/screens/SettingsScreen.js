@@ -24,6 +24,12 @@ import { syncAndScheduleReminders, cancelAllReminders } from '../services/localR
 import { getTrialStatus } from '../utils/trialHelpers';
 import * as Notifications from 'expo-notifications';
 
+// Import sound files to ensure they're bundled with the app
+// These are required so Expo includes them in the build
+require('../assets/sounds/r1.wav');
+require('../assets/sounds/r2.wav');
+require('../assets/sounds/r3.wav');
+
 const SettingsContent = ({ navigation }) => {
   const webViewRef = useRef(null);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
@@ -44,7 +50,7 @@ const SettingsContent = ({ navigation }) => {
   const [paymentData, setPaymentData] = useState(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [paymentEmail, setPaymentEmail] = useState('');
-  const FIXED_PAYMENT_AMOUNT = 20; // Fixed payment amount in GHS
+  const FIXED_PAYMENT_AMOUNT = 25; // Fixed payment amount in GHS
 
   // Feedback states
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
@@ -168,6 +174,68 @@ const SettingsContent = ({ navigation }) => {
     }
   };
 
+  // Helper function to save notification preferences (used for auto-save)
+  const saveNotificationPreference = async (enabled, minutes) => {
+    if (!isAuthenticated) return;
+
+    try {
+      const token = await AsyncStorage.getItem('@auth_token');
+      if (!token) return;
+
+      const reminderMinutesNum = typeof minutes === 'string' ? parseInt(minutes, 10) : minutes;
+      if (isNaN(reminderMinutesNum) || reminderMinutesNum < 0 || reminderMinutesNum > 120) {
+        return; // Invalid value, don't save
+      }
+
+      const response = await fetch(getApiUrl('auth/profile'), {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          notificationsEnabled: enabled,
+          reminderMinutes: reminderMinutesNum,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        // Update local storage
+        const userDataString = await AsyncStorage.getItem('@user_data');
+        if (userDataString) {
+          const userData = JSON.parse(userDataString);
+          userData.notifications_enabled = enabled;
+          userData.reminder_minutes = reminderMinutesNum;
+          userData.notification_sound = notificationSound;
+          await AsyncStorage.setItem('@user_data', JSON.stringify(userData));
+        }
+        
+        // Also store notification sound separately for easy access
+        await AsyncStorage.setItem('@notification_sound', notificationSound);
+
+        // Initialize or remove notifications based on preference
+        if (enabled) {
+          // Recreate Android notification channel with new sound preference
+          const { createNotificationChannel } = require('../services/notificationService');
+          await createNotificationChannel(true); // Force recreate to update sound
+          
+          await initializeNotifications();
+          // Rebuild local reminder notifications with new preference (will use new sound)
+          await syncAndScheduleReminders(reminderMinutesNum);
+        } else {
+          await removePushToken();
+          // Cancel all local reminders if notifications are disabled
+          await cancelAllReminders();
+        }
+      }
+    } catch (error) {
+      console.error('Error auto-saving notification preference:', error);
+      // Don't show alert for auto-save failures to avoid interrupting user
+    }
+  };
+
   const handleSaveSettings = async () => {
     if (!isAuthenticated) {
       Alert.alert('Sign Up Required', 'Please sign up to save settings.', [
@@ -191,53 +259,10 @@ const SettingsContent = ({ navigation }) => {
         return;
       }
 
-      const response = await fetch(getApiUrl('auth/profile'), {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          notificationsEnabled,
-          reminderMinutes: reminderMinutesNum,
-        }),
-      });
+      // Save notification preferences (this will also handle notification setup)
+      await saveNotificationPreference(notificationsEnabled, reminderMinutesNum);
 
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        // Update local storage
-        const userDataString = await AsyncStorage.getItem('@user_data');
-        if (userDataString) {
-          const userData = JSON.parse(userDataString);
-          userData.notifications_enabled = notificationsEnabled;
-          userData.reminder_minutes = reminderMinutesNum;
-          userData.notification_sound = notificationSound;
-          await AsyncStorage.setItem('@user_data', JSON.stringify(userData));
-        }
-        
-        // Also store notification sound separately for easy access
-        await AsyncStorage.setItem('@notification_sound', notificationSound);
-
-        // Initialize or remove notifications based on preference
-        if (notificationsEnabled) {
-          // Recreate Android notification channel with new sound preference
-          const { createNotificationChannel } = require('../services/notificationService');
-          await createNotificationChannel(true); // Force recreate to update sound
-          
-          await initializeNotifications();
-          // Rebuild local reminder notifications with new preference (will use new sound)
-          await syncAndScheduleReminders(reminderMinutesNum);
-        } else {
-          await removePushToken();
-          // Cancel all local reminders if notifications are disabled
-          await cancelAllReminders();
-        }
-
-        Alert.alert('Success', 'Settings saved successfully');
-      } else {
-        Alert.alert('Error', data.message || 'Failed to save settings');
-      }
+      Alert.alert('Success', 'Settings saved successfully');
     } catch (error) {
       console.error('Error saving settings:', error);
       Alert.alert('Error', 'Failed to save settings. Please try again.');
@@ -667,10 +692,17 @@ const SettingsContent = ({ navigation }) => {
         notificationSoundValue = false; // Silent
       } else if (soundPreference === 'default') {
         notificationSoundValue = true; // System default sound
+      } else if (soundPreference === 'r1' || soundPreference === 'r2' || soundPreference === 'r3') {
+        // For Expo notifications, use just the filename (without path)
+        // Files in assets/sounds/ are automatically bundled to res/raw/ on Android
+        // and to the app bundle on iOS during build
+        // The filename must match exactly (case-sensitive)
+        const soundFileName = `${soundPreference}.wav`;
+        console.log(`Using custom sound: ${soundFileName}`);
+        notificationSoundValue = soundFileName;
       } else {
-        // For custom sounds, use the sound file name
-        // If file doesn't exist, will fall back to default sound
-        notificationSoundValue = `${soundPreference}.wav`;
+        // Fallback to default
+        notificationSoundValue = true;
       }
       
       // Check permissions
@@ -697,7 +729,7 @@ const SettingsContent = ({ navigation }) => {
           body: soundPreference === 'none' 
             ? 'This is a silent notification (no sound)' 
             : `This is how your ${soundPreference} notification will sound - Listen for the sound!`,
-          sound: notificationSoundValue, // true = plays default system sound loudly
+          sound: notificationSoundValue,
           priority: Notifications.AndroidNotificationPriority.HIGH,
         },
         trigger: null, // Show immediately
@@ -844,7 +876,7 @@ const SettingsContent = ({ navigation }) => {
             </View>
             <Switch
               value={notificationsEnabled}
-              onValueChange={(value) => {
+              onValueChange={async (value) => {
                 if (!isAuthenticated) {
                   Alert.alert('Sign Up Required', 'Please sign up to enable notifications.', [
                     { text: 'Cancel', style: 'cancel' },
@@ -852,6 +884,8 @@ const SettingsContent = ({ navigation }) => {
                   ]);
                 } else {
                   setNotificationsEnabled(value);
+                  // Auto-save notification preference
+                  await saveNotificationPreference(value, reminderMinutes);
                 }
               }}
               trackColor={{ false: '#d1d5db', true: '#22c55e' }}
@@ -883,6 +917,15 @@ const SettingsContent = ({ navigation }) => {
                         { text: 'Cancel', style: 'cancel' },
                         { text: 'Sign Up', onPress: () => navigation.navigate('Signup') },
                       ]);
+                    }
+                  }}
+                  onBlur={async () => {
+                    if (isAuthenticated) {
+                      const reminderMinutesNum = parseInt(reminderMinutes, 10);
+                      if (!isNaN(reminderMinutesNum) && reminderMinutesNum >= 0 && reminderMinutesNum <= 120) {
+                        // Auto-save reminder minutes when user finishes editing
+                        await saveNotificationPreference(notificationsEnabled, reminderMinutesNum);
+                      }
                     }
                   }}
                   keyboardType="numeric"
@@ -919,10 +962,9 @@ const SettingsContent = ({ navigation }) => {
                 <View style={styles.soundValueContainer}>
                   <Text style={styles.soundValueText}>
                     {notificationSound === 'default' ? 'Default' :
-                     notificationSound === 'bell' ? 'Bell' :
-                     notificationSound === 'chime' ? 'Chime' :
-                     notificationSound === 'ding' ? 'Ding' :
-                     notificationSound === 'pop' ? 'Pop' :
+                     notificationSound === 'r1' ? 'Sound 1' :
+                     notificationSound === 'r2' ? 'Sound 2' :
+                     notificationSound === 'r3' ? 'Sound 3' :
                      notificationSound === 'none' ? 'None' : notificationSound}
                   </Text>
                   <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
@@ -1184,12 +1226,11 @@ const SettingsContent = ({ navigation }) => {
 
             <ScrollView style={styles.soundPickerBody}>
               {[
-                { value: 'default', label: 'Default', icon: 'notifications-outline' },
-                { value: 'bell', label: 'Bell', icon: 'notifications' },
-                { value: 'chime', label: 'Chime', icon: 'musical-notes' },
-                { value: 'ding', label: 'Ding', icon: 'volume-high' },
-                { value: 'pop', label: 'Pop', icon: 'radio-button-on' },
-                { value: 'none', label: 'None (Silent)', icon: 'volume-mute' },
+                { value: 'default', label: 'Default', icon: 'notifications-outline', soundFile: null },
+                { value: 'r1', label: 'Sound 1', icon: 'musical-notes', soundFile: require('../assets/sounds/r1.wav') },
+                { value: 'r2', label: 'Sound 2', icon: 'volume-high', soundFile: require('../assets/sounds/r2.wav') },
+                { value: 'r3', label: 'Sound 3', icon: 'radio-button-on', soundFile: require('../assets/sounds/r3.wav') },
+                { value: 'none', label: 'None (Silent)', icon: 'volume-mute', soundFile: null },
               ].map((sound) => (
                 <TouchableOpacity
                   key={sound.value}
@@ -1199,6 +1240,23 @@ const SettingsContent = ({ navigation }) => {
                   ]}
                   onPress={async () => {
                     setNotificationSound(sound.value);
+                    // Auto-save notification sound preference
+                    if (isAuthenticated) {
+                      // Store sound preference locally
+                      await AsyncStorage.setItem('@notification_sound', sound.value);
+                      // Update user data in AsyncStorage
+                      const userDataString = await AsyncStorage.getItem('@user_data');
+                      if (userDataString) {
+                        const userData = JSON.parse(userDataString);
+                        userData.notification_sound = sound.value;
+                        await AsyncStorage.setItem('@user_data', JSON.stringify(userData));
+                      }
+                      // Recreate Android notification channel with new sound preference
+                      if (notificationsEnabled) {
+                        const { createNotificationChannel } = require('../services/notificationService');
+                        await createNotificationChannel(true); // Force recreate to update sound
+                      }
+                    }
                     // Don't close immediately - let user preview if they want
                     // User can close manually or use preview button
                   }}

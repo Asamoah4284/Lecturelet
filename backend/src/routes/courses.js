@@ -30,6 +30,7 @@ router.post(
       .notEmpty()
       .withMessage('At least one lecture day is required'),
     body('dayTimes').optional(),
+    body('dayVenues').optional(),
     body('startTime')
       .optional()
       .trim(),
@@ -51,6 +52,7 @@ router.post(
         courseCode,
         days,
         dayTimes,
+        dayVenues,
         startTime,
         endTime,
         venue,
@@ -77,6 +79,16 @@ router.post(
         }
       }
 
+      // Use dayVenues if provided, otherwise fall back to single venue
+      let courseVenue = venue;
+      if (dayVenues && Object.keys(dayVenues).length > 0) {
+        // Use first day's venue for backward compatibility
+        const firstDay = Array.isArray(days) ? days[0] : days;
+        if (dayVenues[firstDay]) {
+          courseVenue = dayVenues[firstDay];
+        }
+      }
+
       // Normalize phone numbers - trim and ensure they're strings
       const normalizedPhoneNumbers = allowedPhoneNumbers && Array.isArray(allowedPhoneNumbers)
         ? allowedPhoneNumbers.map(num => String(num).trim()).filter(num => num.length > 0)
@@ -90,7 +102,8 @@ router.post(
         startTime: courseStartTime,
         endTime: courseEndTime,
         dayTimes: dayTimes || {},
-        venue,
+        dayVenues: dayVenues || {},
+        venue: courseVenue,
         creditHours,
         indexFrom,
         indexTo,
@@ -322,6 +335,8 @@ router.put(
     body('courseName').optional().trim().notEmpty(),
     body('courseCode').optional().trim().notEmpty(),
     body('days').optional(),
+    body('dayTimes').optional(),
+    body('dayVenues').optional(),
     body('startTime').optional().trim().notEmpty(),
     body('endTime').optional().trim().notEmpty(),
     body('venue').optional().trim(),
@@ -348,6 +363,7 @@ router.put(
         courseCode,
         days,
         dayTimes,
+        dayVenues,
         startTime,
         endTime,
         venue,
@@ -377,8 +393,18 @@ router.put(
         if (startTime !== undefined) updateData.startTime = startTime;
         if (endTime !== undefined) updateData.endTime = endTime;
       }
-      
-      if (venue !== undefined) updateData.venue = venue;
+
+      // Handle dayVenues - if provided, use it; otherwise use single venue
+      if (dayVenues !== undefined && Object.keys(dayVenues).length > 0) {
+        updateData.dayVenues = dayVenues;
+        // Also update venue for backward compatibility (use first day's venue)
+        const firstDay = Array.isArray(days) ? days[0] : days;
+        if (dayVenues[firstDay]) {
+          updateData.venue = dayVenues[firstDay];
+        }
+      } else {
+        if (venue !== undefined) updateData.venue = venue;
+      }
       if (creditHours !== undefined) updateData.creditHours = creditHours;
       if (indexFrom !== undefined) updateData.indexFrom = indexFrom;
       if (indexTo !== undefined) updateData.indexTo = indexTo;
@@ -411,6 +437,7 @@ router.put(
             startTime: currentCourse.startTime,
             endTime: currentCourse.endTime,
             dayTimes: currentCourse.dayTimes,
+            dayVenues: currentCourse.dayVenues,
             venue: currentCourse.venue,
             creditHours: currentCourse.creditHours,
             indexFrom: currentCourse.indexFrom,

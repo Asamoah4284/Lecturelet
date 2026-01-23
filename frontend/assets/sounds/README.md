@@ -1,16 +1,23 @@
 # Notification Sound Files
 
-This directory should contain the notification sound files for the app.
+This directory contains the notification sound files for the app.
 
-## Required Sound Files
+## Available Sound Files
 
-To enable different notification sounds, add the following sound files to this directory:
+The following sound files are currently available:
 
-- `default.wav` - Default notification sound
-- `bell.wav` - Bell sound
-- `chime.wav` - Chime sound  
-- `ding.wav` - Ding sound
-- `pop.wav` - Pop sound
+- `r1.wav` - Sound 1 (Bell/Chime style)
+- `r2.wav` - Sound 2 (Ding style)
+- `r3.wav` - Sound 3 (Pop style)
+
+## Sound Options in App
+
+Users can select from:
+- **Default** - System default notification sound
+- **Sound 1** - Uses `r1.wav`
+- **Sound 2** - Uses `r2.wav`
+- **Sound 3** - Uses `r3.wav`
+- **None** - Silent (no sound)
 
 ## Sound File Requirements
 
@@ -43,9 +50,15 @@ You can find free notification sounds from:
 
 ## Current Status
 
-⚠️ **Note**: Currently, all sound options use the system default sound because custom sound files have not been added yet. 
+✅ **Custom sounds are enabled!** The app now uses the sound files from this directory.
 
-To enable different sounds:
-1. Add the sound files listed above
-2. Rebuild the app
-3. The different sound options will then play their respective sounds
+- Local reminder notifications will play the selected custom sound
+- Push notifications from the backend will use the system default sound (Expo push notifications don't support custom sound files)
+
+## Adding More Sounds
+
+To add more sound options:
+1. Add new `.wav` files to this directory (e.g., `r4.wav`)
+2. Update `SettingsScreen.js` to add the new sound option in the sound picker
+3. Update `localReminderService.js` to map the new sound preference to the file
+4. Rebuild the app for changes to take effect

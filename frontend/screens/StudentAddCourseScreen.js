@@ -536,7 +536,7 @@ const StudentAddCourseScreen = ({ navigation }) => {
               <View style={styles.trialInfoSection}>
                 <Text style={styles.trialInfoHeading}>After 7 Days</Text>
                 <Text style={styles.trialInfoText}>
-                  Once your trial ends, you'll need to make a payment (GH₵20) to continue:
+                  Once your trial ends, you'll need to make a payment (GH₵25) to continue:
                 </Text>
                 <View style={styles.trialWarningList}>
                   <View style={styles.trialWarningItem}>

@@ -82,9 +82,29 @@ const AddCourseScreen = ({ navigation, route }) => {
     return {};
   });
   
-  const [venue, setVenue] = useState(
-    editingCourse?.venue || editingCourse?.location || ''
-  );
+  // Store venues per day: { Monday: 'Room A1', Tuesday: 'Room B2', ... }
+  const [dayVenues, setDayVenues] = useState(() => {
+    // Check for dayVenues first (from backend as day_venues or dayVenues)
+    if (editingCourse?.dayVenues && Object.keys(editingCourse.dayVenues).length > 0) {
+      return editingCourse.dayVenues;
+    }
+    if (editingCourse?.day_venues && Object.keys(editingCourse.day_venues).length > 0) {
+      return editingCourse.day_venues;
+    }
+    // For backward compatibility, if there's a single venue, use it for all days
+    const venue = editingCourse?.venue || editingCourse?.location || '';
+    if (venue) {
+      const venues = {};
+      const days = editingCourse?.days || (editingCourse?.day ? [editingCourse.day] : []);
+      if (Array.isArray(days) && days.length > 0) {
+        days.forEach(day => {
+          venues[day] = venue;
+        });
+      }
+      return venues;
+    }
+    return {};
+  });
   const [creditHours, setCreditHours] = useState(
     getField('creditHours', 'credit_hours')
   );
@@ -195,7 +215,22 @@ const AddCourseScreen = ({ navigation, route }) => {
         }
       }
       
-      setVenue(editingCourse.venue || editingCourse.location || '');
+      // Update dayVenues - check for day_venues (backend format) or dayVenues
+      if (editingCourse.dayVenues && Object.keys(editingCourse.dayVenues).length > 0) {
+        setDayVenues(editingCourse.dayVenues);
+      } else if (editingCourse.day_venues && Object.keys(editingCourse.day_venues).length > 0) {
+        setDayVenues(editingCourse.day_venues);
+      } else {
+        // For backward compatibility, if there's a single venue, use it for all days
+        const venue = editingCourse.venue || editingCourse.location || '';
+        if (venue && Array.isArray(days) && days.length > 0) {
+          const venues = {};
+          days.forEach(day => {
+            venues[day] = venue;
+          });
+          setDayVenues(venues);
+        }
+      }
       setCreditHours(editingCourse.creditHours || editingCourse.credit_hours || '');
       setIndexFrom(editingCourse.indexFrom || editingCourse.index_from || '');
       setIndexTo(editingCourse.indexTo || editingCourse.index_to || '');
@@ -224,16 +259,21 @@ const AddCourseScreen = ({ navigation, route }) => {
     const day = DAYS[dayIndex];
     setSelectedDays((prev) => {
       if (prev.includes(day)) {
-        // Remove day and its times
+        // Remove day and its times and venues
         const newDays = prev.filter((d) => d !== day);
         setDayTimes((prevTimes) => {
           const newTimes = { ...prevTimes };
           delete newTimes[day];
           return newTimes;
         });
+        setDayVenues((prevVenues) => {
+          const newVenues = { ...prevVenues };
+          delete newVenues[day];
+          return newVenues;
+        });
         return newDays;
       } else {
-        // Add day - use existing time if available, otherwise use default
+        // Add day - use existing time and venue if available, otherwise use default
         const newDays = [...prev, day];
         setDayTimes((prevTimes) => {
           // If day already has times, keep them; otherwise use default or first day's time
@@ -255,6 +295,22 @@ const AddCourseScreen = ({ navigation, route }) => {
               startTime: defaultStart,
               endTime: defaultEnd,
             },
+          };
+        });
+        setDayVenues((prevVenues) => {
+          // If day already has venue, keep it; otherwise use first day's venue or empty
+          if (prevVenues[day]) {
+            return prevVenues; // Day already has venue
+          }
+          
+          // Try to use first selected day's venue as default, or use empty
+          const defaultVenue = prev.length > 0 && prevVenues[prev[0]] 
+            ? prevVenues[prev[0]] 
+            : '';
+          
+          return {
+            ...prevVenues,
+            [day]: defaultVenue,
           };
         });
         return newDays;
@@ -362,6 +418,9 @@ const AddCourseScreen = ({ navigation, route }) => {
       const firstDay = selectedDays[0];
       const firstDayTime = dayTimes[firstDay] || { startTime: '', endTime: '' };
 
+      // Get first day's venue for backward compatibility
+      const firstDayVenue = dayVenues[firstDay] || '';
+
       const courseData = {
         courseName: courseName.trim(),
         courseCode: courseCode.trim(),
@@ -369,7 +428,8 @@ const AddCourseScreen = ({ navigation, route }) => {
         dayTimes: dayTimes, // New structure with times per day
         startTime: firstDayTime.startTime, // Keep for backward compatibility
         endTime: firstDayTime.endTime, // Keep for backward compatibility
-        venue: venue.trim(),
+        dayVenues: dayVenues, // New structure with venues per day
+        venue: firstDayVenue.trim(), // Keep for backward compatibility
         creditHours: creditHours.trim(),
         indexFrom: indexFrom.trim(),
         indexTo: indexTo.trim(),
@@ -583,16 +643,32 @@ const AddCourseScreen = ({ navigation, route }) => {
             </View>
           )}
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Venue</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g., Room A1"
-              value={venue}
-              onChangeText={setVenue}
-              placeholderTextColor="#9ca3af"
-            />
-          </View>
+          {/* Venue selection for each selected day */}
+          {selectedDays.length > 0 && (
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Venue for Each Day</Text>
+              {selectedDays.map((day) => {
+                const dayVenue = dayVenues[day] || '';
+                return (
+                  <View key={day} style={styles.dayTimeContainer}>
+                    <Text style={styles.dayTimeLabel}>{day}</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="e.g., Room A1"
+                      value={dayVenue}
+                      onChangeText={(text) => {
+                        setDayVenues((prev) => ({
+                          ...prev,
+                          [day]: text,
+                        }));
+                      }}
+                      placeholderTextColor="#9ca3af"
+                    />
+                  </View>
+                );
+              })}
+            </View>
+          )}
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Credit Hours</Text>

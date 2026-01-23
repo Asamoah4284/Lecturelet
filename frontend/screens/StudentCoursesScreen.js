@@ -245,6 +245,43 @@ const StudentCoursesScreen = ({ navigation }) => {
     return `${startTime} - ${endTime}`;
   };
 
+  const getDayTimeDetails = (course) => {
+    // Check if dayTimes exists (new format with times per day)
+    const dayTimes = course.day_times || course.dayTimes;
+    const days = course.days || [];
+    
+    if (dayTimes && Object.keys(dayTimes).length > 0 && Array.isArray(days) && days.length > 0) {
+      // Return array of objects with day, time, and venue
+      return days.map(day => {
+        const dayTime = dayTimes[day];
+        if (dayTime && dayTime.startTime && dayTime.endTime) {
+          const dayVenues = course.day_venues || course.dayVenues;
+          const venue = (dayVenues && dayVenues[day]) || course.venue || course.location || null;
+          return {
+            day,
+            time: `${dayTime.startTime} - ${dayTime.endTime}`,
+            venue
+          };
+        }
+        return null;
+      }).filter(Boolean);
+    }
+    
+    // Fallback to single time for all days
+    const startTime = course.start_time || course.startTime;
+    const endTime = course.end_time || course.endTime;
+    if (startTime && endTime && days.length > 0) {
+      const venue = course.venue || course.location || null;
+      return days.map(day => ({
+        day,
+        time: `${startTime} - ${endTime}`,
+        venue
+      }));
+    }
+    
+    return [];
+  };
+
   const handleUnenroll = (course) => {
     if (!isAuthenticated) {
       Alert.alert('Sign Up Required', 'Please sign up to manage your courses.', [
@@ -637,22 +674,44 @@ const StudentCoursesScreen = ({ navigation }) => {
                         </View>
                       </View>
                       <View style={styles.courseDetails}>
-                        <View style={styles.detailRow}>
-                          <Ionicons name="time-outline" size={16} color="#6b7280" />
-                          <Text style={styles.detailText}>
-                            {formatTime(course.start_time || course.startTime, course.end_time || course.endTime)}
-                          </Text>
-                        </View>
-                        {course.venue && (
-                          <View style={styles.detailRow}>
-                            <Ionicons name="location-outline" size={16} color="#6b7280" />
-                            <Text style={styles.detailText}>{course.venue}</Text>
-                          </View>
+                        {/* Show all days with their times and venues */}
+                        {getDayTimeDetails(course).length > 0 ? (
+                          getDayTimeDetails(course).map((dayDetail, index) => (
+                            <View key={index} style={styles.dayTimeRow}>
+                              <View style={styles.detailRow}>
+                                <Ionicons name="calendar-outline" size={16} color="#6b7280" />
+                                <Text style={styles.detailText}>
+                                  {dayDetail.day}: {dayDetail.time}
+                                </Text>
+                              </View>
+                              {dayDetail.venue && (
+                                <View style={[styles.detailRow, styles.venueRow]}>
+                                  <Ionicons name="location-outline" size={16} color="#6b7280" />
+                                  <Text style={styles.detailText}>{dayDetail.venue}</Text>
+                                </View>
+                              )}
+                            </View>
+                          ))
+                        ) : (
+                          <>
+                            <View style={styles.detailRow}>
+                              <Ionicons name="time-outline" size={16} color="#6b7280" />
+                              <Text style={styles.detailText}>
+                                {formatTime(course.start_time || course.startTime, course.end_time || course.endTime)}
+                              </Text>
+                            </View>
+                            {course.venue && (
+                              <View style={styles.detailRow}>
+                                <Ionicons name="location-outline" size={16} color="#6b7280" />
+                                <Text style={styles.detailText}>{course.venue}</Text>
+                              </View>
+                            )}
+                            <View style={styles.detailRow}>
+                              <Ionicons name="calendar-outline" size={16} color="#6b7280" />
+                              <Text style={styles.detailText}>{formatDays(course.days)}</Text>
+                            </View>
+                          </>
                         )}
-                        <View style={styles.detailRow}>
-                          <Ionicons name="calendar-outline" size={16} color="#6b7280" />
-                          <Text style={styles.detailText}>{formatDays(course.days)}</Text>
-                        </View>
                         <View style={styles.detailRow}>
                           <Ionicons name="book-outline" size={16} color="#6b7280" />
                           <Text style={styles.detailText}>By {instructorName}</Text>
@@ -982,6 +1041,13 @@ const styles = StyleSheet.create({
   detailText: {
     fontSize: 12,
     color: '#6b7280',
+  },
+  dayTimeRow: {
+    marginBottom: 4,
+  },
+  venueRow: {
+    marginLeft: 24,
+    marginTop: 2,
   },
   courseFooter: {
     flexDirection: 'row',

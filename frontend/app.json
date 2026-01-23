@@ -17,7 +17,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.LectureLet.app",
-      "buildNumber": "9",
+      "buildNumber": "10",
       "infoPlist": {
         "UIBackgroundModes": [
           "remote-notification"
@@ -58,7 +58,7 @@
     ],
     "extra": {
       "apiUrl": "https://lecturelet.onrender.com/api",
-      "PAYSTACK_PUBLIC_KEY": "pk_test_5fe292bf0df872407adaebe53b5982e173a45f44",
+      "PAYSTACK_PUBLIC_KEY": "pk_live_c7eea9b79128087953250d722a33cd39348ac401",
       "eas": {
         "projectId": "ea913b88-c870-4e26-90b7-87661d3890f0"
       }

@@ -33,6 +33,10 @@ const courseSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.Mixed,
     default: {}
   },
+  dayVenues: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
+  },
   venue: {
     type: String,
     default: null
@@ -171,6 +175,7 @@ courseSchema.methods.toJSON = function() {
     start_time: this.startTime,
     end_time: this.endTime,
     day_times: this.dayTimes,
+    day_venues: this.dayVenues,
     venue: this.venue,
     credit_hours: this.creditHours,
     index_from: this.indexFrom,

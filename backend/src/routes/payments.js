@@ -10,7 +10,7 @@ const router = express.Router();
 
 // Fixed payment amount - SECURITY: This is the only source of truth for payment amount
 // Frontend cannot manipulate this value
-const FIXED_PAYMENT_AMOUNT = 20; // GHS 20
+const FIXED_PAYMENT_AMOUNT = 25; // GHS 25
 const PAYMENT_CURRENCY = 'GHS';
 
 /**

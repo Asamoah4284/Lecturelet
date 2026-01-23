@@ -3,6 +3,12 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApiUrl } from '../config/api';
 
+// Import sound files to ensure they're bundled with the app
+// These are required so Expo includes them in the build
+require('../assets/sounds/r1.wav');
+require('../assets/sounds/r2.wav');
+require('../assets/sounds/r3.wav');
+
 const NOTIFICATION_PREFIX = 'local_reminder_';
 const SCHEDULED_NOTIFICATIONS_KEY = '@scheduled_reminders';
 const LAST_SYNC_KEY = '@last_reminder_sync';
@@ -203,8 +209,8 @@ const scheduleReminderNotification = async ({
     
     // Map sound preference to notification sound value
     // For Expo notifications:
-    // - iOS: Can use system sound names or custom sound files
-    // - Android: Requires custom sound files in assets
+    // - iOS: Can use system sound names or custom sound files (Asset URI)
+    // - Android: Requires custom sound files in assets (Asset URI)
     // - Use false for silent
     let notificationSound = true; // Default to system sound
     
@@ -212,14 +218,17 @@ const scheduleReminderNotification = async ({
       notificationSound = false; // Silent - no sound
     } else if (soundPreference === 'default') {
       notificationSound = true; // System default sound
-    } else {
-      // For custom sounds, try to use sound files
-      // If files don't exist, will fall back to default system sound
+    } else if (soundPreference === 'r1' || soundPreference === 'r2' || soundPreference === 'r3') {
+      // For Expo notifications, use just the filename (without path)
+      // Files in assets/sounds/ are automatically bundled to res/raw/ on Android
+      // and to the app bundle on iOS during build
+      // The filename must match exactly (case-sensitive)
       const soundFileName = `${soundPreference}.wav`;
-      
-      // Try to use the custom sound file
-      // Note: If the file doesn't exist, Expo will fall back to default sound
+      console.log(`Using custom sound for notification: ${soundFileName}`);
       notificationSound = soundFileName;
+    } else {
+      // Fallback to default system sound for unknown preferences
+      notificationSound = true;
     }
     
     const notificationContent = {

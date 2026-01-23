@@ -124,66 +124,81 @@ export const getPushToken = async () => {
       return null;
     }
 
-    // Try to get projectId from various sources
+    // Try to get projectId from various sources (CRITICAL for production builds)
     let projectId = null;
     
-    // Try EAS config first (production)
+    // Try EAS config first (production builds)
     if (Constants.easConfig?.projectId) {
       projectId = Constants.easConfig.projectId;
+      console.log('Using projectId from Constants.easConfig:', projectId);
     }
-    // Try app.json extra config
+    // Try app.json extra config (most common in production)
     else if (Constants.expoConfig?.extra?.eas?.projectId) {
       projectId = Constants.expoConfig.extra.eas.projectId;
+      console.log('Using projectId from Constants.expoConfig.extra.eas:', projectId);
     }
     // Try direct extra config
     else if (Constants.expoConfig?.extra?.projectId) {
       projectId = Constants.expoConfig.extra.projectId;
+      console.log('Using projectId from Constants.expoConfig.extra:', projectId);
     }
     // Try manifest (for Expo Go/development)
     else if (Constants.expoConfig?.projectId) {
       projectId = Constants.expoConfig.projectId;
+      console.log('Using projectId from Constants.expoConfig:', projectId);
+    }
+    // Try manifest2 (for newer Expo versions)
+    else if (Constants.manifest2?.extra?.eas?.projectId) {
+      projectId = Constants.manifest2.extra.eas.projectId;
+      console.log('Using projectId from Constants.manifest2:', projectId);
     }
 
-    // Build token options
+    // Build token options - projectId is REQUIRED for production builds
     const tokenOptions = {};
     if (projectId) {
       tokenOptions.projectId = projectId;
     } else {
-      // For development/Expo Go, try using experienceId as fallback
-      const experienceId = Constants.expoConfig?.slug || Constants.manifest?.slug;
-      if (experienceId) {
-        // In Expo Go, we can use the experienceId
-        // But for push tokens, we still need projectId for production
-        console.log('No projectId found, attempting without it (may work in Expo Go)');
-      }
+      console.warn(
+        '⚠️ No projectId found! Push notifications may not work in production builds. ' +
+        'Ensure your app.json has the projectId configured in extra.eas.projectId'
+      );
     }
 
+    console.log('Requesting Expo push token with options:', { projectId: tokenOptions.projectId || 'none' });
     const tokenData = await Notifications.getExpoPushTokenAsync(tokenOptions);
 
-    return tokenData.data;
+    if (tokenData?.data) {
+      console.log('✅ Push token obtained successfully');
+      return tokenData.data;
+    } else {
+      console.error('❌ Push token data is empty');
+      return null;
+    }
   } catch (error) {
     console.error('Error getting push token:', error);
     
-    // If it's a projectId error and we're in development, provide helpful message
-    if (error.message && error.message.includes('projectId')) {
-      console.warn(
-        'Push notifications require a projectId. ' +
-        'For development with Expo Go, you may need to configure EAS. ' +
-        'For production, ensure your app.json has the projectId configured.'
+    // If it's a projectId error, provide helpful message
+    if (error.message && (error.message.includes('projectId') || error.message.includes('Project ID'))) {
+      console.error(
+        '❌ Push notifications require a projectId for production builds. ' +
+        'Please ensure your app.json has the projectId configured in extra.eas.projectId. ' +
+        'Current projectId from config:', Constants.expoConfig?.extra?.eas?.projectId || 'NOT FOUND'
       );
-      
-      // In some cases, Expo Go might work without projectId
-      // Try one more time with empty options
-      try {
-        console.log('Attempting fallback method...');
-        const tokenData = await Notifications.getExpoPushTokenAsync({
-          // Leave empty - may work in some Expo versions
-        });
+      return null;
+    }
+    
+    // For other errors, try one more time with minimal options (may work in some cases)
+    try {
+      console.log('Attempting fallback method for push token...');
+      const tokenData = await Notifications.getExpoPushTokenAsync({
+        projectId: Constants.expoConfig?.extra?.eas?.projectId || undefined,
+      });
+      if (tokenData?.data) {
+        console.log('✅ Push token obtained via fallback method');
         return tokenData.data;
-      } catch (retryError) {
-        console.error('Fallback also failed:', retryError);
-        return null;
       }
+    } catch (retryError) {
+      console.error('Fallback method also failed:', retryError);
     }
     
     return null;
@@ -193,40 +208,54 @@ export const getPushToken = async () => {
 /**
  * Register push token with the backend
  * @param {string} token - Expo push token
+ * @param {number} retries - Number of retry attempts (default: 3)
  * @returns {Promise<boolean>} True if registration successful
  */
-export const registerPushToken = async (token) => {
-  try {
-    const authToken = await AsyncStorage.getItem('@auth_token');
-    if (!authToken) {
-      console.log('No auth token found, skipping push token registration');
-      return false;
+export const registerPushToken = async (token, retries = 3) => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const authToken = await AsyncStorage.getItem('@auth_token');
+      if (!authToken) {
+        console.log('No auth token found, skipping push token registration');
+        return false;
+      }
+
+      const response = await fetch(getApiUrl('notifications/register-token'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ pushToken: token }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        // Store token locally to avoid re-registering unnecessarily
+        await AsyncStorage.setItem('@push_token', token);
+        console.log('Push token registered successfully');
+        return true;
+      } else {
+        console.error(`Failed to register push token (attempt ${attempt}/${retries}):`, data.message);
+        // If it's the last attempt, return false
+        if (attempt === retries) {
+          return false;
+        }
+        // Wait before retrying (exponential backoff)
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
+    } catch (error) {
+      console.error(`Error registering push token (attempt ${attempt}/${retries}):`, error);
+      // If it's the last attempt, return false
+      if (attempt === retries) {
+        return false;
+      }
+      // Wait before retrying (exponential backoff)
+      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
     }
-
-    const response = await fetch(getApiUrl('notifications/register-token'), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authToken}`,
-      },
-      body: JSON.stringify({ pushToken: token }),
-    });
-
-    const data = await response.json();
-
-    if (response.ok && data.success) {
-      // Store token locally to avoid re-registering unnecessarily
-      await AsyncStorage.setItem('@push_token', token);
-      console.log('Push token registered successfully');
-      return true;
-    } else {
-      console.error('Failed to register push token:', data.message);
-      return false;
-    }
-  } catch (error) {
-    console.error('Error registering push token:', error);
-    return false;
   }
+  return false;
 };
 
 /**
@@ -271,34 +300,49 @@ export const removePushToken = async () => {
  */
 export const initializeNotifications = async (forceRegister = false) => {
   try {
+    console.log('🔔 Initializing notifications...');
+    
     // Create Android notification channel first (critical for Android 8.0+)
     await createNotificationChannel();
     
     const hasPermission = await requestNotificationPermissions();
     if (!hasPermission) {
-      console.log('Notification permissions not granted');
+      console.log('⚠️ Notification permissions not granted');
       return false;
     }
 
     const token = await getPushToken();
     if (!token) {
-      console.log('Failed to get push token');
+      console.error('❌ Failed to get push token - notifications will not work');
       return false;
     }
+
+    console.log('✅ Push token obtained:', token.substring(0, 20) + '...');
 
     // Check if token has changed (unless forced to register)
     if (!forceRegister) {
       const storedToken = await AsyncStorage.getItem('@push_token');
       if (storedToken === token) {
-        console.log('Push token unchanged, skipping registration');
-        return true;
+        console.log('ℹ️ Push token unchanged, but verifying registration with backend...');
+        // Still verify with backend even if token hasn't changed
+        // This ensures the token is registered after app reinstall or backend issues
+        const registered = await registerPushToken(token, 1); // Single attempt for verification
+        return registered;
       }
     }
 
-    const registered = await registerPushToken(token);
+    console.log('📤 Registering push token with backend...');
+    const registered = await registerPushToken(token, 3); // 3 retry attempts
+    
+    if (registered) {
+      console.log('✅ Push token registered successfully with backend');
+    } else {
+      console.error('❌ Failed to register push token with backend after retries');
+    }
+    
     return registered;
   } catch (error) {
-    console.error('Error initializing notifications:', error);
+    console.error('❌ Error initializing notifications:', error);
     return false;
   }
 };

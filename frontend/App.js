@@ -4,20 +4,34 @@ import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CourseProvider } from './context/CourseContext';
 import AppNavigator from './navigation/AppNavigator';
-import { initializeNotifications, setupNotificationListeners, isPushNotification } from './services/notificationService';
+import { 
+  initializeNotifications, 
+  setupNotificationListeners, 
+  isPushNotification,
+  requestNotificationPermissions,
+  createNotificationChannel 
+} from './services/notificationService';
 import { syncAndScheduleReminders, validateAndRescheduleReminders, handleCourseUpdate } from './services/localReminderService';
 
 export default function App() {
   const appState = useRef(AppState.currentState);
 
   useEffect(() => {
-    // Initialize notifications on app launch
-    const initNotifications = async () => {
+    // CRITICAL: Initialize notification handler and permissions IMMEDIATELY
+    // This must happen before any conditional logic for production push notifications to work
+    const initNotificationSystem = async () => {
       try {
+        // Create Android notification channel first (required for Android 8.0+)
+        await createNotificationChannel();
+        
+        // Request permissions early (even if user isn't logged in yet)
+        // This ensures push tokens can be generated in production builds
+        await requestNotificationPermissions();
+        
         // Check if user is logged in
         const token = await AsyncStorage.getItem('@auth_token');
         if (token) {
-          // User is logged in, initialize notifications
+          // User is logged in, register push token and sync reminders
           await initializeNotifications();
           
           // Sync and schedule local reminder notifications
@@ -27,13 +41,13 @@ export default function App() {
           await validateAndRescheduleReminders();
         }
       } catch (error) {
-        console.error('Error initializing notifications:', error);
+        console.error('Error initializing notification system:', error);
       }
     };
 
-    initNotifications();
+    initNotificationSystem();
 
-    // Set up notification listeners
+    // Set up notification listeners (must be set up immediately for production)
     const cleanup = setupNotificationListeners(
       async (notification) => {
         console.log('Notification received:', notification);
@@ -65,6 +79,9 @@ export default function App() {
         try {
           const token = await AsyncStorage.getItem('@auth_token');
           if (token) {
+            // Re-register push token when app comes to foreground (ensures it's up to date)
+            await initializeNotifications(true);
+            
             // Validate and reschedule if needed
             await validateAndRescheduleReminders();
             // Sync to get any course updates

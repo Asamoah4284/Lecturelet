@@ -6,7 +6,10 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "update:android": "eas update --platform android",
+    "update:ios": "eas update --platform ios",
+    "update:all": "eas update --branch production --message \"Update\""
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -19,6 +22,7 @@
     "expo-clipboard": "^8.0.8",
     "expo-notifications": "~0.28.0",
     "expo-status-bar": "~3.0.8",
+    "expo-updates": "~29.0.16",
     "react": "19.1.0",
     "react-native": "0.81.5",
     "react-native-paystack-webview": "^5.0.3",

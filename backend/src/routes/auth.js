@@ -101,10 +101,14 @@ router.post(
     try {
       const { phoneNumber, password, fullName, role, studentId, college } = req.body;
 
-      // Validate college if provided
-      if (college) {
+      // Normalize college value: convert "None", empty string, or null to null
+      let normalizedCollege = null;
+      if (college && college.trim() && college.trim() !== 'None') {
+        normalizedCollege = college.trim();
+        
+        // Validate college exists in database
         const collegeExists = await College.findOne({ 
-          name: college.trim(), 
+          name: normalizedCollege, 
           isActive: true 
         });
         if (!collegeExists) {
@@ -131,7 +135,7 @@ router.post(
         fullName: fullName.trim(),
         role,
         studentId: studentId ? studentId.trim() : null,
-        college: college || null,
+        college: normalizedCollege,
       });
 
       await user.save();

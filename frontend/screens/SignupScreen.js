@@ -44,7 +44,8 @@ const SignupScreen = ({ navigation }) => {
         }
 
         const fetchedColleges = data?.data?.colleges || [];
-        setColleges(fetchedColleges);
+        // Add "None" as the first option
+        setColleges(['None', ...fetchedColleges]);
       } catch (err) {
         console.error('Error fetching colleges:', err);
         setCollegesError(err.message || 'Failed to load departments. Please try again.');
@@ -68,7 +69,8 @@ const SignupScreen = ({ navigation }) => {
       return;
     }
 
-    if (!college.trim()) {
+    // Allow "None" as a valid selection
+    if (!college || college.trim() === '') {
       Alert.alert('Validation Error', 'Please select your department');
       return;
     }
@@ -89,11 +91,12 @@ const SignupScreen = ({ navigation }) => {
     }
 
     // Pass signup data to role selection screen
+    // Convert "None" to null for backend
     navigation.replace('RoleSelect', {
       signupData: {
         fullName: fullName.trim(),
         phoneNumber: phoneNumber.trim(),
-        college: college.trim(),
+        college: college.trim() === 'None' ? null : college.trim(),
         password: password,
       },
     });
@@ -177,7 +180,7 @@ const SignupScreen = ({ navigation }) => {
                           : styles.selectInputPlaceholder
                       }
                     >
-                      {college || 'Select your department'}
+                      {college || 'Select your department (or None)'}
                     </Text>
                     <Ionicons name={showCollegeList ? 'chevron-up' : 'chevron-down'} size={18} color="#6b7280" />
                   </View>

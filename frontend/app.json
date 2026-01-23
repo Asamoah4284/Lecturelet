@@ -18,6 +18,7 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.LectureLet.app",
       "buildNumber": "10",
+      "runtimeVersion": "1.0.0",
       "infoPlist": {
         "UIBackgroundModes": [
           "remote-notification"
@@ -39,7 +40,8 @@
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
         "com.android.alarm.permission.SET_ALARM"
-      ]
+      ],
+      "runtimeVersion": "1.0.0"
     },
     "web": {
       "favicon": "./assets/logo-1.png"
@@ -63,6 +65,9 @@
         "projectId": "ea913b88-c870-4e26-90b7-87661d3890f0"
       }
     },
-    "owner": "asamoah4284"
+    "owner": "asamoah4284",
+    "updates": {
+      "url": "https://u.expo.dev/ea913b88-c870-4e26-90b7-87661d3890f0"
+    }
   }
 }

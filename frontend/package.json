@@ -9,7 +9,10 @@
     "web": "expo start --web",
     "update:android": "eas update --platform android",
     "update:ios": "eas update --platform ios",
-    "update:all": "eas update --branch production --message \"Update\""
+    "update:all": "eas update --branch production --message \"Update\"",
+    "build:android": "eas build --platform android",
+    "build:ios": "eas build --platform ios",
+    "build:all": "eas build --platform all"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

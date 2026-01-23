@@ -44,10 +44,14 @@ const SignupScreen = ({ navigation }) => {
         }
 
         const fetchedColleges = data?.data?.colleges || [];
-        // Add "None" as the first option
-        setColleges(['None', ...fetchedColleges]);
+        // Add "None" as the first option - always include it
+        const collegesWithNone = ['None', ...fetchedColleges];
+        console.log('Colleges list with None:', collegesWithNone);
+        setColleges(collegesWithNone);
       } catch (err) {
         console.error('Error fetching colleges:', err);
+        // Even if API fails, still show "None" as an option
+        setColleges(['None']);
         setCollegesError(err.message || 'Failed to load departments. Please try again.');
       } finally {
         setLoadingColleges(false);

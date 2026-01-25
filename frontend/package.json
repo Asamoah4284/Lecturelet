@@ -11,6 +11,7 @@
     "update:ios": "eas update --platform ios",
     "update:all": "eas update --branch production --message \"Update\"",
     "build:android": "eas build --platform android",
+    "build:android:apk": "eas build --platform android --profile preview",
     "build:ios": "eas build --platform ios",
     "build:all": "eas build --platform all"
   },

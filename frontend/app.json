@@ -35,7 +35,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.LectureLet.app",
-      "versionCode": 6,
+      "versionCode": 7,
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",

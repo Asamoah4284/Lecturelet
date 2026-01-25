@@ -38,15 +38,17 @@ export const createNotificationChannel = async () => {
       
       if (!channelExists) {
         // Create the default notification channel
+        // CRITICAL: HIGH importance ensures notifications appear even when screen is off
         await Notifications.setNotificationChannelAsync('default', {
           name: 'Lecture Reminders',
           description: 'Notifications for upcoming lectures and course updates',
-          importance: Notifications.AndroidImportance.HIGH,
+          importance: Notifications.AndroidImportance.HIGH, // HIGH = shows on lock screen and wakes device
           vibrationPattern: [0, 250, 250, 250],
           lightColor: '#2563eb',
           sound: 'default',
           enableVibrate: true,
           showBadge: true,
+          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC, // Show on lock screen
         });
         console.log('Android notification channel created successfully');
       } else {

@@ -1,6 +1,6 @@
 const express = require('express');
 const { body, param } = require('express-validator');
-const { Notification, Course, User, Enrollment } = require('../models');
+const { Notification, Course, User, Enrollment, DeviceToken } = require('../models');
 const { authenticate, authorize } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 const { sendBulkPushNotifications } = require('../utils/pushNotificationService');
@@ -16,7 +16,7 @@ const router = express.Router();
 router.get('/', authenticate, async (req, res) => {
   try {
     const { limit, unreadOnly } = req.query;
-    
+
     const notifications = await Notification.getByUser(req.user.id, {
       limit: limit ? parseInt(limit) : 50,
       unreadOnly: unreadOnly === 'true',
@@ -114,15 +114,15 @@ router.post(
         try {
           const days = courseData.days || [];
           if (days.length === 0) return null;
-          
+
           const dayTimes = courseData.dayTimes || {};
           const hasDayTimes = Object.keys(dayTimes).length > 0;
-          
+
           const getDayName = (date) => {
             const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
             return days[date.getDay()];
           };
-          
+
           const parseTime = (timeStr, date) => {
             if (!timeStr) return null;
             try {
@@ -150,22 +150,22 @@ router.post(
               return null;
             }
           };
-          
+
           for (let i = 0; i < 7; i++) {
             const checkDate = new Date(fromDate);
             checkDate.setDate(checkDate.getDate() + i);
             const dayName = getDayName(checkDate);
-            
+
             if (!days.includes(dayName)) continue;
-            
+
             let startTime = null;
-            
+
             if (hasDayTimes && dayTimes[dayName]) {
               startTime = parseTime(dayTimes[dayName].startTime, checkDate);
             } else {
               startTime = parseTime(courseData.startTime, checkDate);
             }
-            
+
             if (startTime) {
               const timeDiff = startTime.getTime() - fromDate.getTime();
               const thirtyMinutes = 30 * 60 * 1000;
@@ -174,7 +174,7 @@ router.post(
               }
             }
           }
-          
+
           return null;
         } catch (error) {
           return null;
@@ -185,10 +185,10 @@ router.post(
       const now = new Date();
       const nextClassTime = calculateNextClassTime(course, now);
       const thirtyMinutes = 30 * 60 * 1000;
-      const isWithinThirtyMinutes = nextClassTime && 
-                                    (nextClassTime.getTime() - now.getTime() <= thirtyMinutes && 
-                                     nextClassTime.getTime() - now.getTime() > 0);
-      
+      const isWithinThirtyMinutes = nextClassTime &&
+        (nextClassTime.getTime() - now.getTime() <= thirtyMinutes &&
+          nextClassTime.getTime() - now.getTime() > 0);
+
       const shouldSendSMS = isWithinThirtyMinutes;
 
       // Get all enrolled students for the course
@@ -203,12 +203,12 @@ router.post(
       // Create personalized notifications for each student
       for (const enrollment of enrollments) {
         const student = enrollment.userId;
-        
+
         // Skip if user no longer exists
         if (!student || !student._id) {
           continue;
         }
-        
+
         // Fetch full user to check access status
         const fullUser = await User.findById(student._id);
         if (!fullUser) {
@@ -218,18 +218,18 @@ router.post(
         // Check if user has active access (payment OR active trial)
         // Only send push notifications and SMS if user has active access
         const hasActiveAccess = fullUser.hasActiveAccess();
-        
+
         // Get student's name for personalized notifications
         const studentName = student.fullName || 'Student';
-        
+
         // Include course name in the message if it's not already there
         let messageWithCourse = message;
         if (!message.includes(course.courseName) && !message.includes(course.courseCode)) {
           messageWithCourse = `${course.courseName}: ${message}`;
         }
-        
+
         const personalizedMessage = `Hi ${studentName}, ${messageWithCourse}`;
-        
+
         // Create in-app notification for all students (even if trial expired)
         notifications.push({
           userId: student._id,
@@ -239,18 +239,28 @@ router.post(
           courseId: courseId,
         });
 
-        // Prepare push notification only if user has active access
-        if (hasActiveAccess && student.pushToken && student.notificationsEnabled) {
-          pushNotifications.push({
-            pushToken: student.pushToken,
-            title,
-            body: personalizedMessage,
-            data: {
-              type: 'announcement',
-              courseId: courseId.toString(),
-              courseName: course.courseName,
-            },
+        // ✅ NEW: Get ALL active device tokens for this user (multi-device support)
+        if (hasActiveAccess && student.notificationsEnabled) {
+          const deviceTokens = await DeviceToken.getActiveTokens(student._id);
+
+          // Send push notification to EACH device the student has registered
+          deviceTokens.forEach(device => {
+            pushNotifications.push({
+              pushToken: device.pushToken,
+              title,
+              body: personalizedMessage,
+              data: {
+                type: 'announcement',
+                courseId: courseId.toString(),
+                courseName: course.courseName,
+              },
+            });
           });
+
+          // Log multi-device send
+          if (deviceTokens.length > 1) {
+            console.log(`📱 Sending to ${deviceTokens.length} devices for student ${studentName}`);
+          }
         }
 
         // Prepare SMS only if user has active access (only if within 30 minutes of class)
@@ -415,7 +425,7 @@ router.delete('/', authenticate, async (req, res) => {
 
 /**
  * @route   POST /api/notifications/register-token
- * @desc    Register or update push notification token for current user
+ * @desc    Register or update push notification token for current user's device
  * @access  Private
  */
 router.post(
@@ -426,26 +436,48 @@ router.post(
       .trim()
       .notEmpty()
       .withMessage('Push token is required'),
+    body('platform')
+      .optional()
+      .isIn(['ios', 'android'])
+      .withMessage('Platform must be ios or android'),
   ],
   validate,
   async (req, res) => {
     try {
-      const { pushToken } = req.body;
-      // req.user.id is the string ID from toPublicJSON()
-      const user = await User.findById(req.user.id);
+      const { pushToken, platform, deviceId, appVersion, expoVersion } = req.body;
 
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: 'User not found',
-        });
+      // Detect platform if not provided (Expo tokens typically start with ExponentPushToken)
+      const detectedPlatform = platform || (pushToken.startsWith('ExponentPushToken[') ? 'ios' : 'android');
+
+      // Register token in DeviceToken collection (multi-device support)
+      const deviceToken = await DeviceToken.registerToken(
+        req.user.id,
+        pushToken,
+        detectedPlatform,
+        {
+          deviceId,
+          appVersion,
+          expoVersion
+        }
+      );
+
+      // BACKWARD COMPATIBILITY: Also update User.pushToken with the latest token
+      // This ensures existing code that relies on User.pushToken continues to work
+      const user = await User.findById(req.user.id);
+      if (user) {
+        await user.updatePushToken(pushToken);
       }
 
-      await user.updatePushToken(pushToken);
+      console.log(`✅ Registered push token for user ${req.user.id}, platform ${detectedPlatform}`);
 
       res.json({
         success: true,
         message: 'Push token registered successfully',
+        data: {
+          deviceId: deviceToken._id,
+          platform: detectedPlatform,
+          registeredAt: deviceToken.updatedAt
+        }
       });
     } catch (error) {
       console.error('Register push token error:', error);
@@ -459,26 +491,34 @@ router.post(
 
 /**
  * @route   DELETE /api/notifications/token
- * @desc    Remove push notification token for current user
+ * @desc    Remove push notification token for current user's device
  * @access  Private
  */
 router.delete('/token', authenticate, async (req, res) => {
   try {
-    // req.user.id is the string ID from toPublicJSON()
-    const user = await User.findById(req.user.id);
+    const { pushToken } = req.query;  // Get token from query param (optional)
 
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found',
-      });
+    if (pushToken) {
+      // Deactivate specific token
+      await DeviceToken.deactivateToken(pushToken);
+      console.log(`✅ Deactivated specific push token for user ${req.user.id}`);
+    } else {
+      // Deactivate all tokens for this user (logout from all devices)
+      await DeviceToken.deactivateAllUserTokens(req.user.id);
+      console.log(`✅ Deactivated all push tokens for user ${req.user.id}`);
     }
 
-    await user.updatePushToken(null);
+    // Also remove from User model for backward compatibility
+    const user = await User.findById(req.user.id);
+    if (user) {
+      await user.updatePushToken(null);
+    }
 
     res.json({
       success: true,
-      message: 'Push token removed successfully',
+      message: pushToken
+        ? 'Push token removed successfully'
+        : 'All push tokens removed successfully',
     });
   } catch (error) {
     console.error('Remove push token error:', error);

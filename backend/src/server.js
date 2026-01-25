@@ -13,6 +13,7 @@ const { errorHandler, notFound } = require('./middleware/errorHandler');
 const connectDB = require('./config/database');
 const { startTemporaryEditResetJob } = require('./utils/temporaryEditReset');
 const { startClassReminderJob } = require('./utils/classReminderJob');
+const { startDeviceTokenCleanupJob } = require('./utils/deviceTokenCleanup');
 
 const app = express();
 
@@ -63,13 +64,16 @@ const startServer = async () => {
   try {
     // Connect to MongoDB
     await connectDB();
-    
+
     // Start temporary edit reset job (runs every hour)
     startTemporaryEditResetJob();
-    
+
     // Start class reminder job (runs every 5 minutes)
     startClassReminderJob();
-    
+
+    // Start device token cleanup job (runs daily)
+    startDeviceTokenCleanupJob();
+
     // Start server
     const PORT = config.port;
     app.listen(PORT, () => {

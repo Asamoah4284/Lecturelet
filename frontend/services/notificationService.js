@@ -35,7 +35,7 @@ export const createNotificationChannel = async () => {
       // Check if channel already exists
       const channels = await Notifications.getNotificationChannelsAsync();
       const channelExists = channels.some(channel => channel.id === 'default');
-      
+
       if (!channelExists) {
         // Create the default notification channel
         // CRITICAL: HIGH importance ensures notifications appear even when screen is off
@@ -68,7 +68,7 @@ export const requestNotificationPermissions = async () => {
   try {
     // Create Android notification channel first (required for Android 8.0+)
     await createNotificationChannel();
-    
+
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
 
@@ -128,7 +128,7 @@ export const getPushToken = async () => {
 
     // Try to get projectId from various sources (CRITICAL for production builds)
     let projectId = null;
-    
+
     // Try EAS config first (production builds)
     if (Constants.easConfig?.projectId) {
       projectId = Constants.easConfig.projectId;
@@ -178,7 +178,7 @@ export const getPushToken = async () => {
     }
   } catch (error) {
     console.error('Error getting push token:', error);
-    
+
     // If it's a projectId error, provide helpful message
     if (error.message && (error.message.includes('projectId') || error.message.includes('Project ID'))) {
       console.error(
@@ -188,7 +188,7 @@ export const getPushToken = async () => {
       );
       return null;
     }
-    
+
     // For other errors, try one more time with minimal options (may work in some cases)
     try {
       console.log('Attempting fallback method for push token...');
@@ -202,7 +202,7 @@ export const getPushToken = async () => {
     } catch (retryError) {
       console.error('Fallback method also failed:', retryError);
     }
-    
+
     return null;
   }
 };
@@ -222,21 +222,32 @@ export const registerPushToken = async (token, retries = 3) => {
         return false;
       }
 
+      // ✅ NEW: Include platform and app metadata for multi-device tracking
+      const payload = {
+        pushToken: token,
+        platform: Platform.OS,  // 'ios' or 'android'
+        appVersion: Constants.expoConfig?.version || '1.0.0',
+        expoVersion: Constants.expoConfig?.sdkVersion || 'unknown',
+        // deviceId: Constants.deviceId,  // Optional - may not be available on all platforms
+      };
+
+      console.log(`Registering push token for platform ${Platform.OS}`);
+
       const response = await fetch(getApiUrl('notifications/register-token'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authToken}`,
         },
-        body: JSON.stringify({ pushToken: token }),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
 
       if (response.ok && data.success) {
-        // Store token locally to avoid re-registering unnecessarily
+        // Store token locally to avoid unnecessary re-registration
         await AsyncStorage.setItem('@push_token', token);
-        console.log('Push token registered successfully');
+        console.log('✅ Push token registered successfully:', data.data?.platform);
         return true;
       } else {
         console.error(`Failed to register push token (attempt ${attempt}/${retries}):`, data.message);
@@ -303,10 +314,10 @@ export const removePushToken = async () => {
 export const initializeNotifications = async (forceRegister = false) => {
   try {
     console.log('🔔 Initializing notifications...');
-    
+
     // Create Android notification channel first (critical for Android 8.0+)
     await createNotificationChannel();
-    
+
     const hasPermission = await requestNotificationPermissions();
     if (!hasPermission) {
       console.log('⚠️ Notification permissions not granted');
@@ -335,13 +346,13 @@ export const initializeNotifications = async (forceRegister = false) => {
 
     console.log('📤 Registering push token with backend...');
     const registered = await registerPushToken(token, 3); // 3 retry attempts
-    
+
     if (registered) {
       console.log('✅ Push token registered successfully with backend');
     } else {
       console.error('❌ Failed to register push token with backend after retries');
     }
-    
+
     return registered;
   } catch (error) {
     console.error('❌ Error initializing notifications:', error);
@@ -399,9 +410,9 @@ export const getLastNotificationResponse = async () => {
 export const isLocalReminderNotification = (notification) => {
   const identifier = notification?.request?.identifier || notification?.identifier || '';
   const data = notification?.request?.content?.data || notification?.data || {};
-  
-  return identifier.startsWith('local_reminder_') || 
-         (data.type === 'class_reminder' && data.source === 'local');
+
+  return identifier.startsWith('local_reminder_') ||
+    (data.type === 'class_reminder' && data.source === 'local');
 };
 
 /**
@@ -412,10 +423,10 @@ export const isLocalReminderNotification = (notification) => {
 export const isPushNotification = (notification) => {
   const data = notification?.request?.content?.data || notification?.data || {};
   const identifier = notification?.request?.identifier || notification?.identifier || '';
-  
+
   // Push notifications have types like 'course_update', 'lecture_reminder' (from backend)
   // and don't have the local_reminder_ prefix
-  return !identifier.startsWith('local_reminder_') && 
-         (data.type === 'course_update' || 
-          (data.type === 'lecture_reminder' && data.source !== 'local'));
+  return !identifier.startsWith('local_reminder_') &&
+    (data.type === 'course_update' ||
+      (data.type === 'lecture_reminder' && data.source !== 'local'));
 };

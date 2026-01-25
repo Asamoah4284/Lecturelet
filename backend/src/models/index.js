@@ -9,6 +9,7 @@ const Tutorial = require('./Tutorial');
 const College = require('./College');
 const Feedback = require('./Feedback');
 const SmsLog = require('./SmsLog');
+const DeviceToken = require('./DeviceToken');
 
 module.exports = {
   User,
@@ -22,6 +23,7 @@ module.exports = {
   College,
   Feedback,
   SmsLog,
+  DeviceToken,
 };
 
 

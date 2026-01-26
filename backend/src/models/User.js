@@ -55,30 +55,34 @@ const userSchema = new mongoose.Schema({
   trialEndDate: {
     type: Date,
     default: null
+  },
+  notificationSound: {
+    type: String,
+    default: 'default'
   }
 }, {
   timestamps: true
 });
 
 // Hash password before saving
-userSchema.pre('save', async function(next) {
+userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
   this.password = bcrypt.hashSync(this.password, 10);
   next();
 });
 
 // Instance method to verify password
-userSchema.methods.verifyPassword = function(plainPassword) {
+userSchema.methods.verifyPassword = function (plainPassword) {
   return bcrypt.compareSync(plainPassword, this.password);
 };
 
 // Static method to find by phone number (includes password for auth)
-userSchema.statics.findByPhoneNumber = function(phoneNumber) {
+userSchema.statics.findByPhoneNumber = function (phoneNumber) {
   return this.findOne({ phoneNumber: phoneNumber.trim() });
 };
 
 // Static method to check if phone number exists
-userSchema.statics.phoneNumberExists = async function(phoneNumber) {
+userSchema.statics.phoneNumberExists = async function (phoneNumber) {
   const user = await this.findOne({ phoneNumber: phoneNumber.trim() });
   return !!user;
 };
@@ -86,7 +90,7 @@ userSchema.statics.phoneNumberExists = async function(phoneNumber) {
 /**
  * Update push token for the user
  */
-userSchema.methods.updatePushToken = function(pushToken) {
+userSchema.methods.updatePushToken = function (pushToken) {
   this.pushToken = pushToken || null;
   return this.save();
 };
@@ -94,7 +98,7 @@ userSchema.methods.updatePushToken = function(pushToken) {
 /**
  * Check if trial is currently active
  */
-userSchema.methods.isTrialActive = function() {
+userSchema.methods.isTrialActive = function () {
   if (!this.trialEndDate) return false;
   return new Date() < this.trialEndDate;
 };
@@ -102,14 +106,14 @@ userSchema.methods.isTrialActive = function() {
 /**
  * Check if user has active access (payment OR active trial)
  */
-userSchema.methods.hasActiveAccess = function() {
+userSchema.methods.hasActiveAccess = function () {
   return this.paymentStatus || this.isTrialActive();
 };
 
 /**
  * Start the 7-day free trial
  */
-userSchema.methods.startTrial = function() {
+userSchema.methods.startTrial = function () {
   const now = new Date();
   this.trialStartDate = now;
   // Add 7 days to trial end date
@@ -120,11 +124,11 @@ userSchema.methods.startTrial = function() {
 };
 
 // Transform output to match expected format
-userSchema.methods.toPublicJSON = function() {
+userSchema.methods.toPublicJSON = function () {
   const now = new Date();
   const trialActive = this.trialEndDate && now < this.trialEndDate;
   let daysRemaining = null;
-  
+
   if (trialActive && this.trialEndDate) {
     const diffTime = this.trialEndDate.getTime() - now.getTime();
     daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -139,6 +143,7 @@ userSchema.methods.toPublicJSON = function() {
     college: this.college,
     notifications_enabled: this.notificationsEnabled,
     reminder_minutes: this.reminderMinutes,
+    notification_sound: this.notificationSound,
     payment_status: this.paymentStatus,
     trial_start_date: this.trialStartDate,
     trial_end_date: this.trialEndDate,

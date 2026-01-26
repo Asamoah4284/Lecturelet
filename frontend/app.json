@@ -49,7 +49,11 @@
         "expo-notifications",
         {
           "color": "#2563eb",
-          "sounds": [],
+          "sounds": [
+            "./assets/sounds/r1.wav",
+            "./assets/sounds/r2.wav",
+            "./assets/sounds/r3.wav"
+          ],
           "mode": "production",
           "iosDisplayInForeground": true,
           "androidMode": "default",
@@ -59,7 +63,6 @@
     ],
     "extra": {
       "apiUrl": "http://172.20.10.8:3000/api",
-      // "apiUrl": "https://api.lecturelet.xvote.app/api",
       "PAYSTACK_PUBLIC_KEY": "pk_test_5fe292bf0df872407adaebe53b5982e173a45f44",
       "eas": {
         "projectId": "ea913b88-c870-4e26-90b7-87661d3890f0"

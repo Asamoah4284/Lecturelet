@@ -338,6 +338,9 @@ const processClassReminders = async () => {
                 courseId: course._id.toString(),
                 courseName: course.courseName,
                 type: 'lecture_reminder',
+                sound: user.notificationSound && user.notificationSound !== 'default'
+                  ? `${user.notificationSound}.wav`
+                  : 'default',
               }
             );
 

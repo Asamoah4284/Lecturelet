@@ -105,11 +105,11 @@ router.post(
       let normalizedCollege = null;
       if (college && college.trim() && college.trim() !== 'None') {
         normalizedCollege = college.trim();
-        
+
         // Validate college exists in database
-        const collegeExists = await College.findOne({ 
-          name: normalizedCollege, 
-          isActive: true 
+        const collegeExists = await College.findOne({
+          name: normalizedCollege,
+          isActive: true
         });
         if (!collegeExists) {
           return res.status(400).json({
@@ -154,7 +154,7 @@ router.post(
       });
     } catch (error) {
       console.error('Signup error:', error);
-      
+
       // Handle duplicate key error (MongoDB)
       if (error.code === 11000) {
         return res.status(409).json({
@@ -186,7 +186,7 @@ router.get('/profile', authenticate, async (req, res) => {
         message: 'User not found',
       });
     }
-    
+
     res.json({
       success: true,
       data: {
@@ -213,6 +213,7 @@ router.put(
   [
     body('notificationsEnabled').optional().isBoolean(),
     body('reminderMinutes').optional().isInt({ min: 0, max: 120 }),
+    body('notificationSound').optional().isString(),
     body('role').optional().isIn(['student', 'course_rep']),
   ],
   validate,
@@ -227,13 +228,16 @@ router.put(
         });
       }
 
-      const { notificationsEnabled, reminderMinutes, role } = req.body;
+      const { notificationsEnabled, reminderMinutes, notificationSound, role } = req.body;
 
       if (notificationsEnabled !== undefined) {
         user.notificationsEnabled = notificationsEnabled;
       }
       if (reminderMinutes !== undefined) {
         user.reminderMinutes = reminderMinutes;
+      }
+      if (notificationSound !== undefined) {
+        user.notificationSound = notificationSound;
       }
       if (role !== undefined) {
         console.log(`Updating user ${user._id} role from ${user.role} to ${role}`);

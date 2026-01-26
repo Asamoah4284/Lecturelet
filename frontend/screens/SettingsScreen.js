@@ -44,7 +44,7 @@ const SettingsContent = ({ navigation }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [trialStatus, setTrialStatus] = useState(null);
   const [showSoundPicker, setShowSoundPicker] = useState(false);
-  
+
   // Accesstates
   const [showPayment, setShowPayment] = useState(false);
   const [paymentData, setPaymentData] = useState(null);
@@ -175,7 +175,7 @@ const SettingsContent = ({ navigation }) => {
   };
 
   // Helper function to save notification preferences (used for auto-save)
-  const saveNotificationPreference = async (enabled, minutes) => {
+  const saveNotificationPreference = async (enabled, minutes, sound) => {
     if (!isAuthenticated) return;
 
     try {
@@ -196,6 +196,7 @@ const SettingsContent = ({ navigation }) => {
         body: JSON.stringify({
           notificationsEnabled: enabled,
           reminderMinutes: reminderMinutesNum,
+          notificationSound: notificationSound,
         }),
       });
 
@@ -211,7 +212,7 @@ const SettingsContent = ({ navigation }) => {
           userData.notification_sound = notificationSound;
           await AsyncStorage.setItem('@user_data', JSON.stringify(userData));
         }
-        
+
         // Also store notification sound separately for easy access
         await AsyncStorage.setItem('@notification_sound', notificationSound);
 
@@ -220,7 +221,7 @@ const SettingsContent = ({ navigation }) => {
           // Recreate Android notification channel with new sound preference
           const { createNotificationChannel } = require('../services/notificationService');
           await createNotificationChannel(true); // Force recreate to update sound
-          
+
           await initializeNotifications();
           // Rebuild local reminder notifications with new preference (will use new sound)
           await syncAndScheduleReminders(reminderMinutesNum);
@@ -260,7 +261,7 @@ const SettingsContent = ({ navigation }) => {
       }
 
       // Save notification preferences (this will also handle notification setup)
-      await saveNotificationPreference(notificationsEnabled, reminderMinutesNum);
+      await saveNotificationPreference(notificationsEnabled, reminderMinutesNum, notificationSound);
 
       Alert.alert('Success', 'Settings saved successfully');
     } catch (error) {
@@ -313,7 +314,7 @@ const SettingsContent = ({ navigation }) => {
               // Clear authentication data
               await AsyncStorage.removeItem('@auth_token');
               await AsyncStorage.removeItem('@user_data');
-              
+
               // Reset navigation stack straight to LectureLet home (skip animation screen)
               navigation.reset({
                 index: 0,
@@ -370,10 +371,10 @@ const SettingsContent = ({ navigation }) => {
                 // Clear authentication data
                 await AsyncStorage.removeItem('@auth_token');
                 await AsyncStorage.removeItem('@user_data');
-                
+
                 // Cancel all local reminders
                 await cancelAllReminders();
-                
+
                 // Remove push token
                 await removePushToken();
 
@@ -419,7 +420,7 @@ const SettingsContent = ({ navigation }) => {
     // Check if Paystack is configured
     if (!PAYSTACK_PUBLIC_KEY) {
       Alert.alert(
-        'Configuration Error', 
+        'Configuration Error',
         'Paystack is not configured. Please ensure PAYSTACK_PUBLIC_KEY is set in app.json and restart the app.\n\nIf you just added the key, please:\n1. Stop the Expo server\n2. Run: npx expo start --clear\n3. Reload the app'
       );
       console.error('PAYSTACK_PUBLIC_KEY is missing. Current value:', PAYSTACK_PUBLIC_KEY);
@@ -428,7 +429,7 @@ const SettingsContent = ({ navigation }) => {
 
     // Use payment email if provided, otherwise fall back to userEmail from profile
     const emailToUse = paymentEmail.trim() || userEmail;
-    
+
     // Validate email
     if (!emailToUse) {
       Alert.alert('Email Required', 'Please enter your email address to proceed with payment.');
@@ -451,7 +452,7 @@ const SettingsContent = ({ navigation }) => {
 
     try {
       setIsProcessingPayment(true);
-      
+
       // Initialize payment with backend
       const response = await fetch(getApiUrl('payments/initialize-payment'), {
         method: 'POST',
@@ -493,26 +494,26 @@ const SettingsContent = ({ navigation }) => {
   const handleWebViewNavigationStateChange = async (navState) => {
     const { url, loading } = navState;
     console.log('WebView navigation:', { url, loading });
-    
+
     // Only process when page has finished loading
     if (!loading && url) {
       // Paystack success redirect URLs
-      const isPaystackSuccess = url === 'https://standard.paystack.co/close' || 
-                                url.includes('standard.paystack.co/close') ||
-                                (url.includes('checkout.paystack.com') && (url.includes('success') || url.includes('close')));
-      
+      const isPaystackSuccess = url === 'https://standard.paystack.co/close' ||
+        url.includes('standard.paystack.co/close') ||
+        (url.includes('checkout.paystack.com') && (url.includes('success') || url.includes('close')));
+
       // Other success indicators
-      const isSuccess = url.includes('callback') || 
-                       url.includes('success') || 
-                       url.includes('verify') ||
-                       url.includes('transaction/verify') ||
-                       url.match(/\/success/i);
-      
+      const isSuccess = url.includes('callback') ||
+        url.includes('success') ||
+        url.includes('verify') ||
+        url.includes('transaction/verify') ||
+        url.match(/\/success/i);
+
       // Cancel indicators (but not the Paystack close URL)
-      const isCancel = (url.includes('cancel') || url.match(/\/cancel/i)) && 
-                      !url.includes('standard.paystack.co/close') &&
-                      !url.includes('checkout.paystack.com');
-      
+      const isCancel = (url.includes('cancel') || url.match(/\/cancel/i)) &&
+        !url.includes('standard.paystack.co/close') &&
+        !url.includes('checkout.paystack.com');
+
       if (isPaystackSuccess || (isSuccess && !isCancel)) {
         console.log('Payment completed detected via navigation, verifying automatically...');
         // Close payment modal immediately
@@ -531,7 +532,7 @@ const SettingsContent = ({ navigation }) => {
   const handleShouldStartLoadWithRequest = (request) => {
     const { url } = request;
     console.log('WebView should start load:', url);
-    
+
     // Allow navigation to proceed
     return true;
   };
@@ -540,7 +541,7 @@ const SettingsContent = ({ navigation }) => {
   const verifyPayment = async () => {
     try {
       const token = await AsyncStorage.getItem('@auth_token');
-      
+
       if (!paymentData?.reference) {
         console.error('No payment reference available for verification');
         throw new Error('No payment reference available');
@@ -563,10 +564,10 @@ const SettingsContent = ({ navigation }) => {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json',
             },
-        body: JSON.stringify({
-          reference: paymentData.reference,
-          // Note: Amount is not sent - backend verifies against stored payment record
-        }),
+            body: JSON.stringify({
+              reference: paymentData.reference,
+              // Note: Amount is not sent - backend verifies against stored payment record
+            }),
           });
 
           verifyData = await verifyResponse.json();
@@ -599,10 +600,10 @@ const SettingsContent = ({ navigation }) => {
 
       if (verifyResponse.ok && verifyData.success) {
         console.log('Payment verified successfully!');
-        
+
         // Update Access status immediately for instant UI feedback
         setPaymentStatus(true);
-        
+
         // Update AsyncStorage immediately with Access status
         const userDataString = await AsyncStorage.getItem('@user_data');
         if (userDataString) {
@@ -610,18 +611,18 @@ const SettingsContent = ({ navigation }) => {
           userData.payment_status = true;
           await AsyncStorage.setItem('@user_data', JSON.stringify(userData));
         }
-        
+
         // Update user data from backend to reflect Access status (this will refresh the UI)
         await loadUserData();
-        
+
         // Clear payment data
         setPaymentData(null);
         setIsProcessingPayment(false);
-        
+
         Alert.alert(
           'Accessuccessful! 🎉',
           `Your payment of GH₵${paymentData.amount} has been processed successfully! Your Access status has been updated.`,
-          [{ 
+          [{
             text: 'OK',
             onPress: () => {
               // Access status is already updated, UI will show "Paid" status
@@ -632,12 +633,12 @@ const SettingsContent = ({ navigation }) => {
         console.error('Payment verification failed after retries:', verifyData);
         setIsProcessingPayment(false);
         Alert.alert(
-          'Payment Verification Failed', 
+          'Payment Verification Failed',
           verifyData.error || verifyData.message || verifyData.details || 'Payment verification failed. The payment may still be processing. Please check your Access status in a few moments.',
           [
             { text: 'Cancel', style: 'cancel' },
-            { 
-              text: 'Try Again', 
+            {
+              text: 'Try Again',
               onPress: async () => {
                 setIsProcessingPayment(true);
                 await verifyPayment();
@@ -650,12 +651,12 @@ const SettingsContent = ({ navigation }) => {
       console.error('Payment verification error:', error);
       setIsProcessingPayment(false);
       Alert.alert(
-        'Error', 
+        'Error',
         'Payment verification failed. Please check your connection and try again. If the payment was successful, it will be verified automatically.',
         [
           { text: 'Cancel', style: 'cancel' },
-          { 
-            text: 'Retry', 
+          {
+            text: 'Retry',
             onPress: async () => {
               setIsProcessingPayment(true);
               await verifyPayment();
@@ -684,10 +685,10 @@ const SettingsContent = ({ navigation }) => {
     try {
       // Get the current sound preference
       const soundPreference = notificationSound;
-      
+
       // Map sound preference to notification sound value
       let notificationSoundValue = true; // Default to system sound
-      
+
       if (soundPreference === 'none') {
         notificationSoundValue = false; // Silent
       } else if (soundPreference === 'default') {
@@ -704,7 +705,7 @@ const SettingsContent = ({ navigation }) => {
         // Fallback to default
         notificationSoundValue = true;
       }
-      
+
       // Check permissions
       const { status } = await Notifications.getPermissionsAsync();
       if (status !== 'granted') {
@@ -715,19 +716,19 @@ const SettingsContent = ({ navigation }) => {
         );
         return;
       }
-      
+
       // Ensure Android channel is created with sound enabled
       if (Platform.OS === 'android') {
         const { createNotificationChannel } = require('../services/notificationService');
         await createNotificationChannel(true); // Force recreate to ensure sound is enabled
       }
-      
+
       // Trigger a test notification with the selected sound
       await Notifications.scheduleNotificationAsync({
         content: {
           title: 'Sound Preview 🔊',
-          body: soundPreference === 'none' 
-            ? 'This is a silent notification (no sound)' 
+          body: soundPreference === 'none'
+            ? 'This is a silent notification (no sound)'
             : `This is how your ${soundPreference} notification will sound - Listen for the sound!`,
           sound: notificationSoundValue,
           priority: Notifications.AndroidNotificationPriority.HIGH,
@@ -794,7 +795,7 @@ const SettingsContent = ({ navigation }) => {
   const handleWebViewMessage = async (event) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      
+
       if (data.status === 'success') {
         console.log('Accessuccess message received, verifying automatically...');
         // Close payment modal immediately
@@ -812,9 +813,9 @@ const SettingsContent = ({ navigation }) => {
 
 
   return (
-      <SafeAreaView style={styles.screen}>
-        <StatusBar style="light" />
-      
+    <SafeAreaView style={styles.screen}>
+      <StatusBar style="light" />
+
       {/* Blue Header */}
       <View style={styles.header} />
 
@@ -839,8 +840,8 @@ const SettingsContent = ({ navigation }) => {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Account</Text>
 
-          <TouchableOpacity 
-            style={styles.settingItem} 
+          <TouchableOpacity
+            style={styles.settingItem}
             onPress={() => {
               if (isAuthenticated) {
                 navigation.navigate('RoleSelect');
@@ -885,7 +886,7 @@ const SettingsContent = ({ navigation }) => {
                 } else {
                   setNotificationsEnabled(value);
                   // Auto-save notification preference
-                  await saveNotificationPreference(value, reminderMinutes);
+                  await saveNotificationPreference(value, reminderMinutes, notificationSound);
                 }
               }}
               trackColor={{ false: '#d1d5db', true: '#22c55e' }}
@@ -924,7 +925,7 @@ const SettingsContent = ({ navigation }) => {
                       const reminderMinutesNum = parseInt(reminderMinutes, 10);
                       if (!isNaN(reminderMinutesNum) && reminderMinutesNum >= 0 && reminderMinutesNum <= 120) {
                         // Auto-save reminder minutes when user finishes editing
-                        await saveNotificationPreference(notificationsEnabled, reminderMinutesNum);
+                        await saveNotificationPreference(notificationsEnabled, reminderMinutesNum, notificationSound);
                       }
                     }
                   }}
@@ -962,10 +963,10 @@ const SettingsContent = ({ navigation }) => {
                 <View style={styles.soundValueContainer}>
                   <Text style={styles.soundValueText}>
                     {notificationSound === 'default' ? 'Default' :
-                     notificationSound === 'r1' ? 'Sound 1' :
-                     notificationSound === 'r2' ? 'Sound 2' :
-                     notificationSound === 'r3' ? 'Sound 3' :
-                     notificationSound === 'none' ? 'None' : notificationSound}
+                      notificationSound === 'r1' ? 'Sound 1' :
+                        notificationSound === 'r2' ? 'Sound 2' :
+                          notificationSound === 'r3' ? 'Sound 3' :
+                            notificationSound === 'none' ? 'None' : notificationSound}
                   </Text>
                   <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
                 </View>
@@ -976,54 +977,54 @@ const SettingsContent = ({ navigation }) => {
 
         {/* Accessection - Only show for authenticated students (hide for guests + course reps) */}
         {isAuthenticated && userRole === 'student' && userRole !== 'course_rep' && userRole !== '' && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Account Services</Text>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Account Services</Text>
 
-              <View style={styles.settingItem}>
-                <View style={styles.settingLeft}>
+            <View style={styles.settingItem}>
+              <View style={styles.settingLeft}>
                 <Text style={styles.settingDescription}>
                   Lecturelet provides optional administrative and communication services such as SMS notifications, account handling, and data management related to institutional use.
                 </Text>
-                </View>
               </View>
-
-              <View style={styles.paymentEmailContainer}>
-                <Text style={styles.paymentEmailLabel}>Email Address</Text>
-                <TextInput
-                    style={[styles.paymentEmailInput, !isAuthenticated && styles.disabledInput]}
-                  value={paymentEmail}
-                    onChangeText={(text) => {
-                      if (isAuthenticated) {
-                        setPaymentEmail(text);
-                      }
-                    }}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  placeholder={userEmail || "Enter your email address"}
-                  placeholderTextColor="#9ca3af"
-                    editable={isAuthenticated}
-                />
-                {userEmail && (
-                  <Text style={styles.paymentEmailHint}>
-                    Using profile email: {userEmail}
-                  </Text>
-                )}
-              </View>
-
-              <TouchableOpacity
-                  style={[styles.payButton, (isProcessingPayment || !isAuthenticated) && styles.payButtonDisabled]}
-                onPress={handleInitializePayment}
-                  disabled={isProcessingPayment || !isAuthenticated}
-              >
-                {isProcessingPayment ? (
-                  <ActivityIndicator size="small" color="#ffffff" />
-                ) : (
-                  <Text style={styles.payButtonText}>Get Access</Text>
-                )}
-              </TouchableOpacity>
             </View>
-          )}
+
+            <View style={styles.paymentEmailContainer}>
+              <Text style={styles.paymentEmailLabel}>Email Address</Text>
+              <TextInput
+                style={[styles.paymentEmailInput, !isAuthenticated && styles.disabledInput]}
+                value={paymentEmail}
+                onChangeText={(text) => {
+                  if (isAuthenticated) {
+                    setPaymentEmail(text);
+                  }
+                }}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholder={userEmail || "Enter your email address"}
+                placeholderTextColor="#9ca3af"
+                editable={isAuthenticated}
+              />
+              {userEmail && (
+                <Text style={styles.paymentEmailHint}>
+                  Using profile email: {userEmail}
+                </Text>
+              )}
+            </View>
+
+            <TouchableOpacity
+              style={[styles.payButton, (isProcessingPayment || !isAuthenticated) && styles.payButtonDisabled]}
+              onPress={handleInitializePayment}
+              disabled={isProcessingPayment || !isAuthenticated}
+            >
+              {isProcessingPayment ? (
+                <ActivityIndicator size="small" color="#ffffff" />
+              ) : (
+                <Text style={styles.payButtonText}>Get Access</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Support Section */}
         <View style={styles.section}>
@@ -1078,13 +1079,13 @@ const SettingsContent = ({ navigation }) => {
 
         {/* Save Settings Button */}
         {isAuthenticated ? (
-        <Button
-          title={saving ? "Saving..." : "Save Settings"}
-          onPress={handleSaveSettings}
-          variant="primary"
-          style={styles.saveButton}
-          disabled={saving}
-        />
+          <Button
+            title={saving ? "Saving..." : "Save Settings"}
+            onPress={handleSaveSettings}
+            variant="primary"
+            style={styles.saveButton}
+            disabled={saving}
+          />
         ) : (
           <View style={styles.guestPromptContainer}>
             <Text style={styles.guestPromptText}>Sign up to save settings and access all features</Text>
@@ -1100,10 +1101,10 @@ const SettingsContent = ({ navigation }) => {
         {/* Logout Button + Version */}
         {isAuthenticated && (
           <>
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
-            
+            <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+              <Text style={styles.logoutText}>Logout</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity style={styles.deleteAccountButton} onPress={handleDeleteAccount}>
               <Ionicons name="trash-outline" size={16} color="#ef4444" style={styles.deleteAccountIcon} />
               <Text style={styles.deleteAccountText}>Delete Account</Text>
@@ -1180,7 +1181,7 @@ const SettingsContent = ({ navigation }) => {
                 style={[
                   styles.feedbackSubmitButton,
                   (submittingFeedback || feedbackMessage.trim().length < 10) &&
-                    styles.feedbackButtonDisabled,
+                  styles.feedbackButtonDisabled,
                 ]}
                 onPress={handleSubmitFeedback}
                 disabled={submittingFeedback || feedbackMessage.trim().length < 10}
@@ -1255,6 +1256,8 @@ const SettingsContent = ({ navigation }) => {
                       if (notificationsEnabled) {
                         const { createNotificationChannel } = require('../services/notificationService');
                         await createNotificationChannel(true); // Force recreate to update sound
+                        // Auto-save to backend
+                        await saveNotificationPreference(notificationsEnabled, reminderMinutes, sound.value);
                       }
                     }
                     // Don't close immediately - let user preview if they want
@@ -1288,8 +1291,8 @@ const SettingsContent = ({ navigation }) => {
 
       {/* Paystack Payment WebView Modal */}
       {showPayment && paymentData?.authorizationUrl && (
-        <Modal 
-          visible={showPayment} 
+        <Modal
+          visible={showPayment}
           animationType="slide"
           onRequestClose={handlePaymentCancel}
         >
@@ -1433,8 +1436,8 @@ const SettingsContent = ({ navigation }) => {
             const homeScreen = !isAuthenticated
               ? 'CourseRep'
               : userRole === 'course_rep'
-              ? 'CourseRep'
-              : 'StudentHome';
+                ? 'CourseRep'
+                : 'StudentHome';
             navigation.navigate(homeScreen);
           }}
         >

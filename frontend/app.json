@@ -2,14 +2,14 @@
   "expo": {
     "name": "LectureLet",
     "slug": "LectureLet",
-    "version": "1.0.5",
+    "version": "1.0.4",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./assets/logo-1.png",
     "splash": {
       "image": "./assets/logo-1.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#6366f1"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -17,8 +17,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.LectureLet.app",
-      "buildNumber": "10",
-      "runtimeVersion": "1.0.0",
+      "buildNumber": "4",
       "infoPlist": {
         "UIBackgroundModes": [
           "remote-notification"
@@ -32,16 +31,15 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/logo-1.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#6366f1"
       },
       "package": "com.LectureLet.app",
-      "versionCode": 7,
+      "versionCode": 5,
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
         "com.android.alarm.permission.SET_ALARM"
-      ],
-      "runtimeVersion": "1.0.0"
+      ]
     },
     "web": {
       "favicon": "./assets/logo-1.png"
@@ -51,6 +49,7 @@
         "expo-notifications",
         {
           "color": "#2563eb",
+          "sounds": [],
           "mode": "production",
           "iosDisplayInForeground": true,
           "androidMode": "default",
@@ -59,15 +58,13 @@
       ]
     ],
     "extra": {
-      "apiUrl": "https://lecturelet.onrender.com/api",
-      "PAYSTACK_PUBLIC_KEY": "pk_live_c7eea9b79128087953250d722a33cd39348ac401",
+      "apiUrl": "http://172.20.10.8:3000/api",
+      // "apiUrl": "https://api.lecturelet.xvote.app/api",
+      "PAYSTACK_PUBLIC_KEY": "pk_test_5fe292bf0df872407adaebe53b5982e173a45f44",
       "eas": {
         "projectId": "ea913b88-c870-4e26-90b7-87661d3890f0"
       }
     },
-    "owner": "asamoah4284",
-    "updates": {
-      "url": "https://u.expo.dev/ea913b88-c870-4e26-90b7-87661d3890f0"
-    }
+    "owner": "asamoah4284"
   }
 }

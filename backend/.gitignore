@@ -22,6 +22,10 @@ Thumbs.db
 *.swp
 *.swo
 
+# Firebase service account key (never commit secrets)
+*firebase*adminsdk*.json
+**/lecturelet-c03be-firebase-adminsdk-*.json
+
 
 
 

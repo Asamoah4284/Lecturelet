@@ -1,10 +1,14 @@
-const jwt = require('jsonwebtoken');
-const config = require('../config');
-const { User } = require('../models');
+/**
+ * Firebase Authentication Middleware
+ * Verifies Firebase ID tokens and attaches user to request
+ */
+
+const { auth } = require('../config/firebase');
+const { getUserById, toPublicJSON } = require('../services/firestore/users');
 
 /**
  * Authentication middleware
- * Verifies JWT token and attaches user to request
+ * Verifies Firebase ID token and attaches user to request
  */
 const authenticate = async (req, res, next) => {
   try {
@@ -17,26 +21,35 @@ const authenticate = async (req, res, next) => {
       });
     }
 
-    const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, config.jwt.secret);
+    const idToken = authHeader.split(' ')[1];
     
-    const user = await User.findById(decoded.userId).select('-password');
-    if (!user) {
+    // Verify Firebase ID token
+    const decodedToken = await auth.verifyIdToken(idToken);
+    
+    // Get user document from Firestore
+    const userDoc = await getUserById(decodedToken.uid);
+    if (!userDoc) {
       return res.status(401).json({
         success: false,
         message: 'Invalid token. User not found.',
       });
     }
 
-    req.user = user.toPublicJSON();
+    // Attach user to request (in MongoDB-compatible format)
+    req.user = toPublicJSON(userDoc);
+    req.firebaseUser = decodedToken; // Also attach Firebase user for custom claims access
+    
     next();
   } catch (error) {
-    if (error.name === 'TokenExpiredError') {
+    console.error('Authentication error:', error);
+    
+    if (error.code === 'auth/id-token-expired') {
       return res.status(401).json({
         success: false,
         message: 'Token expired. Please login again.',
       });
     }
+    
     return res.status(401).json({
       success: false,
       message: 'Invalid token.',
@@ -53,13 +66,16 @@ const optionalAuth = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     
     if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.split(' ')[1];
-      const decoded = jwt.verify(token, config.jwt.secret);
-      const user = await User.findById(decoded.userId).select('-password');
-      if (user) {
-        req.user = user.toPublicJSON();
+      const idToken = authHeader.split(' ')[1];
+      const decodedToken = await auth.verifyIdToken(idToken);
+      const userDoc = await getUserById(decodedToken.uid);
+      
+      if (userDoc) {
+        req.user = toPublicJSON(userDoc);
+        req.firebaseUser = decodedToken;
       }
     }
+    
     next();
   } catch (error) {
     // Token invalid but continue without auth
@@ -69,7 +85,7 @@ const optionalAuth = async (req, res, next) => {
 
 /**
  * Role-based authorization middleware
- * Fetches fresh user data from database to ensure role is up-to-date
+ * Checks user role from Firestore (can be enhanced with custom claims)
  */
 const authorize = (...roles) => {
   return async (req, res, next) => {
@@ -81,10 +97,9 @@ const authorize = (...roles) => {
     }
 
     try {
-      // Fetch fresh user data from database to get current role
-      // This ensures that if a user switches roles, the change is reflected immediately
-      const user = await User.findById(req.user.id).select('-password');
-      if (!user) {
+      // Get fresh user data from Firestore to ensure role is up-to-date
+      const userDoc = await getUserById(req.user.id);
+      if (!userDoc) {
         return res.status(401).json({
           success: false,
           message: 'User not found.',
@@ -92,9 +107,12 @@ const authorize = (...roles) => {
       }
 
       // Update req.user with fresh data
-      req.user = user.toPublicJSON();
+      req.user = toPublicJSON(userDoc);
 
-      if (!roles.includes(user.role)) {
+      // Check role (support both 'course_rep' and 'rep' for compatibility)
+      const userRole = userDoc.role === 'rep' ? 'course_rep' : userDoc.role;
+      
+      if (!roles.includes(userRole)) {
         return res.status(403).json({
           success: false,
           message: 'Access denied. Insufficient permissions.',
@@ -112,18 +130,8 @@ const authorize = (...roles) => {
   };
 };
 
-/**
- * Generate JWT token
- */
-const generateToken = (userId) => {
-  return jwt.sign({ userId }, config.jwt.secret, {
-    expiresIn: config.jwt.expiresIn,
-  });
-};
-
 module.exports = {
   authenticate,
   optionalAuth,
   authorize,
-  generateToken,
 };

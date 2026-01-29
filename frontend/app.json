@@ -3,6 +3,7 @@
     "name": "LectureLet",
     "slug": "LectureLet",
     "version": "1.0.4",
+    "runtimeVersion": "1.0.4",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./assets/logo-1.png",
@@ -34,11 +35,13 @@
         "backgroundColor": "#6366f1"
       },
       "package": "com.LectureLet.app",
+      "googleServicesFile": "google-services.json",
       "versionCode": 5,
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
-        "com.android.alarm.permission.SET_ALARM"
+        "com.android.alarm.permission.SET_ALARM",
+        "POST_NOTIFICATIONS"
       ]
     },
     "web": {
@@ -62,10 +65,13 @@
       ]
     ],
     "extra": {
-      "apiUrl": "https://lecturelet.onrender.com/api",
+      "apiUrl": "http://172.20.10.8:3000/api",
       "PAYSTACK_PUBLIC_KEY": "pk_test_5fe292bf0df872407adaebe53b5982e173a45f44",
       "eas": {
         "projectId": "ea913b88-c870-4e26-90b7-87661d3890f0"
+      },
+      "firebase": {
+        "projectId": "lecturelet-c03be"
       }
     },
     "owner": "asamoah4284"

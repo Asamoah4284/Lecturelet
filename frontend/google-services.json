@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "201453130565",
+    "project_id": "lecturelet-c03be",
+    "storage_bucket": "lecturelet-c03be.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:201453130565:android:d8b0b98a1b634ea865a42c",
+        "android_client_info": {
+          "package_name": "com.LectureLet.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCCV78jiUpr8B39D__U1Rs3CSmzO-su1eI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

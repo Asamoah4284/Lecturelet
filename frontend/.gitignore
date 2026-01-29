@@ -57,6 +57,10 @@ web-build/
 .env.test.local
 .env.production.local
 
+# Firebase service account key (never commit secrets)
+*firebase*adminsdk*.json
+**/lecturelet-c03be-firebase-adminsdk-*.json
+
 
 
 

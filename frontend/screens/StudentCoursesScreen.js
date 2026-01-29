@@ -726,6 +726,15 @@ const StudentCoursesScreen = ({ navigation }) => {
                           <Text style={styles.codeValue}>{course.unique_code || course.uniqueCode}</Text>
                         </View>
                       </View>
+                      <TouchableOpacity
+                        style={styles.materialsLink}
+                        onPress={() => navigation.navigate('CourseMaterials', { course })}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="document-attach-outline" size={16} color="#2563eb" />
+                        <Text style={styles.materialsLinkText}>Course materials</Text>
+                        <Ionicons name="chevron-forward" size={16} color="#9ca3af" />
+                      </TouchableOpacity>
                     </View>
                   </View>
                   <TouchableOpacity
@@ -1080,6 +1089,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#2563eb',
     letterSpacing: 0.5,
+  },
+  materialsLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+  },
+  materialsLinkText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#2563eb',
+    flex: 1,
   },
   unenrollButton: {
     width: 32,

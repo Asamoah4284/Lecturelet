@@ -1,12 +1,64 @@
 const express = require('express');
 const { body, param, query } = require('express-validator');
-const { Course, Enrollment, Notification, User } = require('../models');
+const admin = require('firebase-admin');
+const coursesService = require('../services/firestore/courses');
+const enrollmentsService = require('../services/firestore/enrollments');
+const notificationsService = require('../services/firestore/notifications');
+const usersService = require('../services/firestore/users');
+
+// Destructure with aliases
+const {
+  createCourse,
+  getCourseById,
+  getCourseByUniqueCode,
+  getCoursesByCreator,
+  searchCourses,
+  isCreator,
+  updateCourse,
+  deleteCourse,
+} = coursesService;
+const courseToJSON = coursesService.toJSON;
+
+const {
+  enroll,
+  getStudentCourses,
+  getCourseStudents,
+  isEnrolled,
+  unenroll,
+  getEnrollmentsForCourse,
+} = enrollmentsService;
+const getEnrollmentCount = enrollmentsService.getCount;
+
+const {
+  createNotification,
+  createNotifications,
+} = notificationsService;
+
+const { getUserById } = usersService;
+const userToPublicJSON = usersService.toPublicJSON;
+const { getActiveTokens } = require('../services/firestore/deviceTokens');
+const materialsService = require('../services/firestore/courseMaterials');
 const { authenticate, authorize, optionalAuth } = require('../middleware/auth');
 const validate = require('../middleware/validate');
-const { sendBulkPushNotifications } = require('../utils/pushNotificationService');
+const { sendBulkPushNotifications } = require('../services/fcm/pushNotificationService');
 const { sendBulkSMS } = require('../utils/smsService');
+const multer = require('multer');
+const { storage: firebaseStorage } = require('../config/firebase');
 
 const router = express.Router();
+
+// Multer for course material uploads (memory storage, max 15MB)
+const uploadMaterial = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
+  fileFilter: (req, file, cb) => {
+    // Allow common document and image types
+    const allowed = /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|jpg|jpeg|png|gif|zip|rar)$/i.test(file.originalname) ||
+      ['application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'application/zip'].includes(file.mimetype);
+    if (allowed) cb(null, true);
+    else cb(new Error('File type not allowed. Use PDF, Word, images, or text.'));
+  },
+}).single('file');
 
 /**
  * @route   POST /api/courses
@@ -63,13 +115,12 @@ router.post(
         allowedPhoneNumbers,
       } = req.body;
 
-      // Generate unique 5-digit code
-      const uniqueCode = await Course.generateUniqueCode();
+      // Generate unique 5-digit code (handled in createCourse)
 
       // Use dayTimes if provided, otherwise fall back to single startTime/endTime
       let courseStartTime = startTime;
       let courseEndTime = endTime;
-      
+
       if (dayTimes && Object.keys(dayTimes).length > 0) {
         // Use first day's time for backward compatibility
         const firstDay = Array.isArray(days) ? days[0] : days;
@@ -94,8 +145,7 @@ router.post(
         ? allowedPhoneNumbers.map(num => String(num).trim()).filter(num => num.length > 0)
         : [];
 
-      const course = await Course.create({
-        uniqueCode,
+      const courseDoc = await createCourse({
         courseName,
         courseCode,
         days: Array.isArray(days) ? days : [days],
@@ -116,7 +166,7 @@ router.post(
         success: true,
         message: 'Course created successfully',
         data: {
-          course,
+          course: courseToJSON(courseDoc),
         },
       });
     } catch (error) {
@@ -140,14 +190,14 @@ router.get(
   authorize('course_rep'),
   async (req, res) => {
     try {
-      const courses = await Course.findByCreator(req.user.id);
+      const courses = await getCoursesByCreator(req.user.id);
 
       // Get student count for each course
       const coursesWithCount = await Promise.all(
         courses.map(async (course) => {
-          const studentCount = await Enrollment.getCount(course._id);
+          const studentCount = await getEnrollmentCount(course.id);
           return {
-            ...course.toJSON(),
+            ...courseToJSON(course),
             student_count: studentCount,
           };
         })
@@ -188,16 +238,17 @@ router.get(
   async (req, res) => {
     try {
       const { q } = req.query;
-      const courses = await Course.search(q);
+      const courses = await searchCourses(q);
 
-      // Get student count for each course
+      // Get student count and creator name for each course
       const coursesWithCount = await Promise.all(
         courses.map(async (course) => {
-          const studentCount = await Enrollment.getCount(course._id);
+          const studentCount = await getEnrollmentCount(course.id);
+          const creator = await getUserById(course.createdBy);
           return {
-            ...course.toJSON(),
+            ...courseToJSON(course),
             student_count: studentCount,
-            creator_name: course.createdBy?.fullName,
+            creator_name: creator?.fullName,
           };
         })
       );
@@ -238,8 +289,8 @@ router.get(
     try {
       // Log for debugging - can be removed later
       console.log('Course code lookup - isAuthenticated:', !!req.user, 'code:', req.params.uniqueCode);
-      
-      const course = await Course.findByUniqueCode(req.params.uniqueCode);
+
+      const course = await getCourseByUniqueCode(req.params.uniqueCode);
 
       if (!course) {
         return res.status(404).json({
@@ -249,21 +300,22 @@ router.get(
       }
 
       // Check if user is enrolled (only if authenticated)
-      let isEnrolled = false;
+      let enrolled = false;
       if (req.user && req.user.id) {
-        isEnrolled = await Enrollment.isEnrolled(req.user.id, course._id);
+        enrolled = await isEnrolled(req.user.id, course.id);
       }
-      const studentCount = await Enrollment.getCount(course._id);
+      const studentCount = await getEnrollmentCount(course.id);
+      const creator = await getUserById(course.createdBy);
 
       res.json({
         success: true,
         data: {
           course: {
-            ...course.toJSON(),
+            ...courseToJSON(course),
             student_count: studentCount,
-            creator_name: course.createdBy?.fullName,
+            creator_name: creator?.fullName,
           },
-          isEnrolled,
+          isEnrolled: enrolled,
         },
       });
     } catch (error) {
@@ -276,6 +328,192 @@ router.get(
   }
 );
 
+// ========== Course Materials (must be before /:id) ==========
+const STORAGE_MATERIALS_PREFIX = 'course-materials';
+const SIGNED_URL_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
+
+/**
+ * @route   GET /api/courses/:courseId/materials
+ * @desc    List materials for a course (creator or enrolled student)
+ * @access  Private
+ */
+router.get(
+  '/:courseId/materials',
+  authenticate,
+  async (req, res) => {
+    try {
+      const { courseId } = req.params;
+      const course = await getCourseById(courseId);
+      if (!course) {
+        return res.status(404).json({ success: false, message: 'Course not found' });
+      }
+      const isCreatorOfCourse = course.createdBy === req.user.id;
+      const enrolled = await isEnrolled(req.user.id, courseId);
+      if (!isCreatorOfCourse && !enrolled) {
+        return res.status(403).json({ success: false, message: 'Access denied. Enroll or be the course creator to view materials.' });
+      }
+      const materials = await materialsService.listByCourse(courseId);
+      const bucket = firebaseStorage.bucket();
+      const materialsWithUrls = await Promise.all(
+        materials.map(async (m) => {
+          try {
+            const [url] = await bucket.file(m.storagePath).getSignedUrl({
+              action: 'read',
+              expires: Date.now() + SIGNED_URL_EXPIRY_MS,
+            });
+            return { ...m, downloadUrl: url };
+          } catch (e) {
+            return { ...m, downloadUrl: null };
+          }
+        })
+      );
+      return res.json({ success: true, data: { materials: materialsWithUrls } });
+    } catch (err) {
+      console.error('List materials error:', err);
+      const isBucketError = err.code === 'storage/invalid-argument' || (err.response?.status === 404 && err.message?.includes('bucket'));
+      if (isBucketError || (err.response?.data?.error?.message || '').includes('bucket does not exist')) {
+        return res.status(503).json({
+          success: false,
+          message: 'Firebase Storage is not set up. In Firebase Console go to Build → Storage → Get started to create the default bucket.',
+        });
+      }
+      return res.status(500).json({ success: false, message: 'Failed to list materials' });
+    }
+  }
+);
+
+/**
+ * @route   POST /api/courses/:courseId/materials
+ * @desc    Upload a course material (course rep, creator only)
+ * @access  Private (course_rep)
+ */
+router.post(
+  '/:courseId/materials',
+  authenticate,
+  authorize('course_rep'),
+  (req, res, next) => {
+    uploadMaterial(req, res, (err) => {
+      if (err) {
+        if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ success: false, message: 'File too large. Max 15MB.' });
+        }
+        return res.status(400).json({ success: false, message: err.message || 'Invalid file' });
+      }
+      next();
+    });
+  },
+  async (req, res) => {
+    try {
+      const { courseId } = req.params;
+      if (!(await isCreator(courseId, req.user.id))) {
+        return res.status(403).json({ success: false, message: 'You can only upload materials to courses you created' });
+      }
+      if (!req.file || !req.file.buffer) {
+        return res.status(400).json({ success: false, message: 'No file uploaded. Send as multipart/form-data with field "file".' });
+      }
+      const originalName = req.file.originalname || 'document';
+      const ext = originalName.includes('.') ? originalName.slice(originalName.lastIndexOf('.')) : '';
+      const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100);
+      const storagePath = `${STORAGE_MATERIALS_PREFIX}/${courseId}/${Date.now()}_${safeName}`;
+      const bucket = firebaseStorage.bucket();
+      const file = bucket.file(storagePath);
+      await file.save(req.file.buffer, {
+        contentType: req.file.mimetype || 'application/octet-stream',
+        metadata: { contentType: req.file.mimetype || 'application/octet-stream' },
+      });
+      const material = await materialsService.create({
+        courseId,
+        name: originalName,
+        storagePath,
+        downloadUrl: null,
+        mimeType: req.file.mimetype || null,
+        size: req.file.size || 0,
+        uploadedBy: req.user.id,
+      });
+      return res.status(201).json({ success: true, data: { material } });
+    } catch (err) {
+      console.error('Upload material error:', err);
+      const bucketNotFound = err.response?.status === 404 || (err.response?.data?.error?.message || '').includes('bucket does not exist');
+      if (bucketNotFound) {
+        return res.status(503).json({
+          success: false,
+          message: 'Firebase Storage is not set up. In Firebase Console go to Build → Storage → Get started to create the default bucket.',
+        });
+      }
+      return res.status(500).json({ success: false, message: 'Failed to upload material' });
+    }
+  }
+);
+
+/**
+ * @route   GET /api/courses/:courseId/materials/:materialId/download
+ * @desc    Get signed download URL for a material (creator or enrolled)
+ * @access  Private
+ */
+router.get(
+  '/:courseId/materials/:materialId/download',
+  authenticate,
+  async (req, res) => {
+    try {
+      const { courseId, materialId } = req.params;
+      const course = await getCourseById(courseId);
+      if (!course) {
+        return res.status(404).json({ success: false, message: 'Course not found' });
+      }
+      const isCreatorOfCourse = course.createdBy === req.user.id;
+      const enrolled = await isEnrolled(req.user.id, courseId);
+      if (!isCreatorOfCourse && !enrolled) {
+        return res.status(403).json({ success: false, message: 'Access denied' });
+      }
+      const material = await materialsService.getById(materialId);
+      if (!material || material.courseId !== courseId) {
+        return res.status(404).json({ success: false, message: 'Material not found' });
+      }
+      const bucket = firebaseStorage.bucket();
+      const [url] = await bucket.file(material.storagePath).getSignedUrl({
+        action: 'read',
+        expires: Date.now() + SIGNED_URL_EXPIRY_MS,
+      });
+      return res.json({ success: true, data: { downloadUrl: url, name: material.name } });
+    } catch (err) {
+      console.error('Download material error:', err);
+      return res.status(500).json({ success: false, message: 'Failed to get download link' });
+    }
+  }
+);
+
+/**
+ * @route   DELETE /api/courses/:courseId/materials/:materialId
+ * @desc    Delete a course material (course rep, creator only)
+ * @access  Private (course_rep)
+ */
+router.delete(
+  '/:courseId/materials/:materialId',
+  authenticate,
+  authorize('course_rep'),
+  async (req, res) => {
+    try {
+      const { courseId, materialId } = req.params;
+      if (!(await isCreator(courseId, req.user.id))) {
+        return res.status(403).json({ success: false, message: 'You can only delete materials from courses you created' });
+      }
+      const material = await materialsService.getById(materialId);
+      if (!material || material.courseId !== courseId) {
+        return res.status(404).json({ success: false, message: 'Material not found' });
+      }
+      const bucket = firebaseStorage.bucket();
+      await bucket.file(material.storagePath).delete().catch(() => {});
+      await materialsService.remove(materialId);
+      return res.json({ success: true, message: 'Material deleted' });
+    } catch (err) {
+      console.error('Delete material error:', err);
+      return res.status(500).json({ success: false, message: 'Failed to delete material' });
+    }
+  }
+);
+
+// ========== End Course Materials ==========
+
 /**
  * @route   GET /api/courses/:id
  * @desc    Get course by ID
@@ -286,7 +524,7 @@ router.get(
   authenticate,
   async (req, res) => {
     try {
-      const course = await Course.findById(req.params.id).populate('createdBy', 'fullName');
+      const course = await getCourseById(req.params.id);
 
       if (!course) {
         return res.status(404).json({
@@ -296,20 +534,21 @@ router.get(
       }
 
       // Check if user is enrolled or is the creator
-      const isEnrolled = await Enrollment.isEnrolled(req.user.id, course._id);
-      const isCreator = course.createdBy._id.toString() === req.user.id;
-      const studentCount = await Enrollment.getCount(course._id);
+      const enrolled = await isEnrolled(req.user.id, course.id);
+      const creator = course.createdBy === req.user.id;
+      const studentCount = await getEnrollmentCount(course.id);
+      const creatorDoc = await getUserById(course.createdBy);
 
       res.json({
         success: true,
         data: {
           course: {
-            ...course.toJSON(),
+            ...courseToJSON(course),
             student_count: studentCount,
-            creator_name: course.createdBy?.fullName,
+            creator_name: creatorDoc?.fullName,
           },
-          isEnrolled,
-          isCreator,
+          isEnrolled: enrolled,
+          isCreator: creator,
         },
       });
     } catch (error) {
@@ -351,7 +590,7 @@ router.put(
       const courseId = req.params.id;
 
       // Check if course exists and user is creator
-      if (!(await Course.isCreator(courseId, req.user.id))) {
+      if (!(await isCreator(courseId, req.user.id))) {
         return res.status(403).json({
           success: false,
           message: 'You can only update courses you created',
@@ -379,7 +618,7 @@ router.put(
       if (courseName !== undefined) updateData.courseName = courseName;
       if (courseCode !== undefined) updateData.courseCode = courseCode;
       if (days !== undefined) updateData.days = Array.isArray(days) ? days : [days];
-      
+
       // Handle dayTimes - if provided, use it; otherwise use single startTime/endTime
       if (dayTimes !== undefined && Object.keys(dayTimes).length > 0) {
         updateData.dayTimes = dayTimes;
@@ -417,7 +656,7 @@ router.put(
       }
 
       // Get current course data before updating to detect changes
-      const currentCourse = await Course.findById(courseId);
+      const currentCourse = await getCourseById(courseId);
       if (!currentCourse) {
         return res.status(404).json({
           success: false,
@@ -445,10 +684,10 @@ router.put(
             courseRepName: currentCourse.courseRepName,
           };
         }
-        // Set expiration to 24 hours from now
+        // Set expiration to 24 hours from now (Firestore Timestamp)
         const expirationDate = new Date();
         expirationDate.setHours(expirationDate.getHours() + 24);
-        updateData.temporaryEditExpiresAt = expirationDate;
+        updateData.temporaryEditExpiresAt = admin.firestore.Timestamp.fromDate(expirationDate);
       } else {
         // Permanent edit - clear temporary edit fields and apply changes permanently
         updateData.temporaryEditExpiresAt = null;
@@ -457,11 +696,11 @@ router.put(
 
       // Detect what changed for notification
       const changes = [];
-      
+
       if (updateData.courseName && updateData.courseName !== currentCourse.courseName) {
         changes.push(`Course name changed to ${updateData.courseName}`);
       }
-      
+
       // Check venue change - handle empty strings and null values properly
       if (venue !== undefined) {
         const oldVenue = currentCourse.venue || 'Not set';
@@ -473,29 +712,29 @@ router.put(
           changes.push(`Venue changed to ${newVenue}`);
         }
       }
-      
+
       // Check days change - compare arrays properly
       if (days !== undefined) {
-        const currentDaysArray = Array.isArray(currentCourse.days) 
-          ? currentCourse.days.map(d => String(d).trim()).sort() 
+        const currentDaysArray = Array.isArray(currentCourse.days)
+          ? currentCourse.days.map(d => String(d).trim()).sort()
           : currentCourse.days ? [String(currentCourse.days).trim()] : [];
-        const newDaysArray = Array.isArray(days) 
-          ? days.map(d => String(d).trim()).sort() 
+        const newDaysArray = Array.isArray(days)
+          ? days.map(d => String(d).trim()).sort()
           : [String(days).trim()];
-        
+
         // Compare sorted arrays
         if (JSON.stringify(currentDaysArray) !== JSON.stringify(newDaysArray)) {
           const newDays = Array.isArray(days) ? days.join(', ') : days;
           changes.push(`Days changed to ${newDays}`);
         }
       }
-      
+
       // Check for time changes (dayTimes or startTime/endTime)
-      const timeChanged = 
+      const timeChanged =
         (updateData.dayTimes && JSON.stringify(updateData.dayTimes) !== JSON.stringify(currentCourse.dayTimes)) ||
         (updateData.startTime && updateData.startTime !== currentCourse.startTime) ||
         (updateData.endTime && updateData.endTime !== currentCourse.endTime);
-      
+
       if (timeChanged) {
         if (updateData.dayTimes && Object.keys(updateData.dayTimes).length > 0) {
           // Multiple day times changed
@@ -511,7 +750,7 @@ router.put(
           changes.push(`Time changed to ${newTime}`);
         }
       }
-      
+
       if (updateData.creditHours !== undefined && updateData.creditHours !== currentCourse.creditHours) {
         const newHours = updateData.creditHours || 'Not set';
         changes.push(`Credit hours changed to ${newHours}`);
@@ -523,11 +762,10 @@ router.put(
       console.log('Current course venue:', currentCourse.venue);
       console.log('Current course days:', currentCourse.days);
 
-      const course = await Course.findByIdAndUpdate(courseId, updateData, { new: true });
+      const course = await updateCourse(courseId, updateData);
 
       // Get all enrolled students for the course
-      const enrollments = await Enrollment.find({ courseId })
-        .populate('userId', 'pushToken notificationsEnabled fullName phoneNumber');
+      const enrollments = await getEnrollmentsForCourse(courseId);
 
       console.log(`Found ${enrollments.length} enrollments for course ${courseId}`);
 
@@ -536,15 +774,15 @@ router.put(
         try {
           const days = courseData.days || [];
           if (days.length === 0) return null;
-          
+
           const dayTimes = courseData.dayTimes || {};
           const hasDayTimes = Object.keys(dayTimes).length > 0;
-          
+
           const getDayName = (date) => {
             const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
             return days[date.getDay()];
           };
-          
+
           const parseTime = (timeStr, date) => {
             if (!timeStr) return null;
             try {
@@ -572,22 +810,22 @@ router.put(
               return null;
             }
           };
-          
+
           for (let i = 0; i < 7; i++) {
             const checkDate = new Date(fromDate);
             checkDate.setDate(checkDate.getDate() + i);
             const dayName = getDayName(checkDate);
-            
+
             if (!days.includes(dayName)) continue;
-            
+
             let startTime = null;
-            
+
             if (hasDayTimes && dayTimes[dayName]) {
               startTime = parseTime(dayTimes[dayName].startTime, checkDate);
             } else {
               startTime = parseTime(courseData.startTime, checkDate);
             }
-            
+
             if (startTime) {
               const timeDiff = startTime.getTime() - fromDate.getTime();
               const thirtyMinutes = 30 * 60 * 1000;
@@ -596,7 +834,7 @@ router.put(
               }
             }
           }
-          
+
           return null;
         } catch (error) {
           return null;
@@ -608,25 +846,25 @@ router.put(
       const nextClassTime = calculateNextClassTime(currentCourse, now);
       const thirtyMinutes = 30 * 60 * 1000; // 30 minutes in milliseconds
       const isWithinThirtyMinutes = nextClassTime && (nextClassTime.getTime() - now.getTime() <= thirtyMinutes && nextClassTime.getTime() - now.getTime() > 0);
-      
+
       // Check if class is being cancelled
       // Cancellation happens when:
       // 1. Venue is being cleared (was set, now empty/null)
       // 2. Days are being removed (had days, now empty)
       // 3. All days are removed from the course
-      const venueBeingCleared = currentCourse.venue && 
-                                updateData.venue !== undefined && 
-                                (!updateData.venue || updateData.venue.trim() === '');
-      const daysBeingRemoved = currentCourse.days && 
-                               currentCourse.days.length > 0 &&
-                               updateData.days !== undefined && 
-                               (Array.isArray(updateData.days) ? updateData.days.length === 0 : !updateData.days);
+      const venueBeingCleared = currentCourse.venue &&
+        updateData.venue !== undefined &&
+        (!updateData.venue || updateData.venue.trim() === '');
+      const daysBeingRemoved = currentCourse.days &&
+        currentCourse.days.length > 0 &&
+        updateData.days !== undefined &&
+        (Array.isArray(updateData.days) ? updateData.days.length === 0 : !updateData.days);
       const isCancelled = venueBeingCleared || daysBeingRemoved;
-      
+
       // Send SMS ONLY if: (within 30 minutes of class) AND (any changes OR cancellation)
       // Push notifications are sent for ALL changes regardless of timing
       const shouldSendSMS = isWithinThirtyMinutes && (changes.length > 0 || isCancelled);
-      
+
       if (shouldSendSMS) {
         const minutesUntilClass = Math.round((nextClassTime.getTime() - now.getTime()) / 1000 / 60);
         console.log(`⚠️ Last-minute change detected! Next class in ${minutesUntilClass} minutes. SMS will be sent.`);
@@ -665,7 +903,7 @@ router.put(
       } else {
         detailedMessage = `${course.courseName} has been updated`;
       }
-      
+
       // Concise message for push notifications (shorter, single line)
       let pushMessage = `${course.courseName} has been updated`;
       if (changes.length > 0) {
@@ -697,49 +935,82 @@ router.put(
         pushMessage += `. ${changeSummary.join(', ')}`;
       }
 
-      // Prepare notifications for all enrolled students
       const notifications = [];
       const pushNotifications = [];
       const smsRecipients = [];
 
+      // Fetch active device tokens for all enrolled students
+      const tokensByUser = {};
+      for (const enrollment of enrollments) {
+        const studentId = enrollment.userId?.id || enrollment.userId;
+        if (!tokensByUser[studentId]) {
+          const tokens = await getActiveTokens(studentId);
+          tokensByUser[studentId] = tokens.map(t => ({ pushToken: t.pushToken, platform: t.platform }));
+        }
+      }
+
       for (const enrollment of enrollments) {
         const student = enrollment.userId;
-        
+        const studentId = student?.id || student;
+
         // Skip if user no longer exists (e.g., deleted account)
-        if (!student || !student._id) {
+        if (!studentId) {
           continue;
         }
-        
+
+        // Get full user document
+        const fullUserDoc = await getUserById(studentId);
+        if (!fullUserDoc) {
+          continue;
+        }
+
         // Get student's name for personalized notifications
-        const studentName = student.fullName || 'Student';
-        
+        const studentName = fullUserDoc.fullName || 'Student';
+
         // Create in-app notification for all students (detailed message with student name)
         const notificationMessage = `Hi ${studentName}, ${detailedMessage}`;
         notifications.push({
-          userId: student._id,
+          userId: studentId,
           title: notificationTitle,
           message: notificationMessage,
           type: 'course_update',
           courseId: courseId,
         });
 
-        // Prepare push notification for students with push tokens and notifications enabled (concise message)
-        if (student.pushToken && student.notificationsEnabled) {
-          const pushMsg = `Hi ${studentName}, ${pushMessage}`;
-          pushNotifications.push({
-            pushToken: student.pushToken,
-            title: notificationTitle,
-            body: pushMsg,
-            data: {
-              type: 'course_update',
-              courseId: courseId.toString(),
-              courseName: course.courseName,
-            },
-          });
+        // Prepare push notification for students with notifications enabled
+        if (fullUserDoc.notificationsEnabled) {
+          const userTokens = tokensByUser[studentId] || [];
+
+          // Also fallback to user.pushToken if no device tokens found (legacy support)
+          if (userTokens.length === 0 && fullUserDoc.pushToken) {
+            userTokens.push({ pushToken: fullUserDoc.pushToken, platform: 'unknown' });
+          }
+
+          if (userTokens.length > 0) {
+            const pushMsg = `Hi ${studentName}, ${pushMessage}`;
+            // Determine sound file
+            const soundFile = fullUserDoc.notificationSound && fullUserDoc.notificationSound !== 'default'
+              ? `${fullUserDoc.notificationSound}.wav`
+              : 'default';
+
+            userTokens.forEach(device => {
+              pushNotifications.push({
+                pushToken: device.pushToken,
+                title: notificationTitle,
+                body: pushMsg,
+                data: {
+                  type: 'course_update',
+                  courseId: courseId,
+                  courseName: course.courseName,
+                  sound: soundFile,
+                },
+              });
+            });
+          }
         }
 
-        // Prepare SMS for students with phone numbers (only if within 1 hour of class)
-        if (shouldSendSMS && student.phoneNumber) {
+        // Prepare SMS for students with phone numbers (only if within 30 minutes of class)
+        if (shouldSendSMS && fullUserDoc.phoneNumber) {
           // Create concise SMS message (max 160 chars)
           let smsMessage = '';
           if (isCancelled) {
@@ -749,16 +1020,16 @@ router.put(
             const changeSummary = changes.slice(0, 2).join(', '); // Limit to 2 changes for SMS
             smsMessage = `Hi ${studentName}, URGENT: ${course.courseName} - ${changeSummary}.`;
           }
-          
+
           // Truncate if too long (SMS limit ~160 chars)
           if (smsMessage.length > 160) {
             smsMessage = smsMessage.substring(0, 157) + '...';
           }
-          
+
           smsRecipients.push({
-            phoneNumber: student.phoneNumber,
+            phoneNumber: fullUserDoc.phoneNumber,
             message: smsMessage,
-            userId: student._id,
+            userId: studentId,
             type: 'course_update',
             courseId: courseId
           });
@@ -768,7 +1039,7 @@ router.put(
       // Create in-app notifications in database
       if (notifications.length > 0) {
         console.log(`Creating ${notifications.length} in-app notifications`);
-        await Notification.insertMany(notifications);
+        await createNotifications(notifications);
         console.log('In-app notifications created successfully');
       } else {
         console.log('No notifications to create (no enrolled students or all students deleted)');
@@ -810,7 +1081,7 @@ router.put(
         success: true,
         message: 'Course updated successfully',
         data: {
-          course,
+          course: courseToJSON(course),
           notificationsSent: notifications.length,
           pushNotificationsSent: pushNotifications.length,
           smsSent: smsResult.sent || 0,
@@ -840,7 +1111,7 @@ router.delete(
       const courseId = req.params.id;
 
       // Check if course exists and user is creator
-      const course = await Course.findById(courseId);
+      const course = await getCourseById(courseId);
       if (!course) {
         return res.status(404).json({
           success: false,
@@ -848,7 +1119,7 @@ router.delete(
         });
       }
 
-      if (!(await Course.isCreator(courseId, req.user.id))) {
+      if (!(await isCreator(courseId, req.user.id))) {
         return res.status(403).json({
           success: false,
           message: 'You can only delete courses you created',
@@ -856,9 +1127,12 @@ router.delete(
       }
 
       // Delete related enrollments and notifications
-      await Enrollment.deleteMany({ courseId });
-      await Notification.deleteMany({ courseId });
-      await Course.findByIdAndDelete(courseId);
+      const { deleteAllForCourse: deleteEnrollmentsForCourse } = require('../services/firestore/enrollments');
+      const { deleteAllForCourse: deleteNotificationsForCourse } = require('../services/firestore/notifications');
+      
+      await deleteEnrollmentsForCourse(courseId);
+      await deleteNotificationsForCourse(courseId);
+      await deleteCourse(courseId);
 
       res.json({
         success: true,
@@ -888,14 +1162,14 @@ router.get(
       const courseId = req.params.id;
 
       // Check if user is creator
-      if (!(await Course.isCreator(courseId, req.user.id))) {
+      if (!(await isCreator(courseId, req.user.id))) {
         return res.status(403).json({
           success: false,
           message: 'You can only view students for courses you created',
         });
       }
 
-      const students = await Enrollment.getCourseStudents(courseId);
+      const students = await getCourseStudents(courseId);
 
       res.json({
         success: true,
@@ -936,7 +1210,7 @@ router.post(
       const { phoneNumber } = req.body;
 
       // Check if user is creator
-      if (!(await Course.isCreator(courseId, req.user.id))) {
+      if (!(await isCreator(courseId, req.user.id))) {
         return res.status(403).json({
           success: false,
           message: 'You can only add students to courses you created',
@@ -944,12 +1218,10 @@ router.post(
       }
 
       // Find student by phone number
-      const student = await User.findOne({ 
-        phoneNumber: phoneNumber.trim(),
-        role: 'student'
-      });
+      const { getUserByPhoneNumber } = require('../services/firestore/users');
+      const student = await getUserByPhoneNumber(phoneNumber.trim());
 
-      if (!student) {
+      if (!student || student.role !== 'student') {
         return res.status(404).json({
           success: false,
           message: 'Student not found with this phone number',
@@ -957,7 +1229,7 @@ router.post(
       }
 
       // Check if already enrolled
-      if (await Enrollment.isEnrolled(student._id, courseId)) {
+      if (await isEnrolled(student.id, courseId)) {
         return res.status(409).json({
           success: false,
           message: 'Student is already enrolled in this course',
@@ -965,14 +1237,14 @@ router.post(
       }
 
       // Enroll student
-      await Enrollment.enroll(student._id, courseId);
+      await enroll(student.id, courseId);
 
       // Get course for notification
-      const course = await Course.findById(courseId);
+      const course = await getCourseById(courseId);
 
       // Send notification to student
-      await Notification.create({
-        userId: student._id,
+      await createNotification({
+        userId: student.id,
         title: 'Course Enrollment',
         message: `You have been enrolled in ${course.courseName}`,
         type: 'announcement',
@@ -981,11 +1253,11 @@ router.post(
 
       res.status(201).json({
         success: true,
-        message: `Successfully added ${student.full_name} to the course`,
+        message: `Successfully added ${student.fullName} to the course`,
         data: {
           student: {
-            id: student._id,
-            full_name: student.full_name,
+            id: student.id,
+            full_name: student.fullName,
             phone_number: student.phoneNumber,
             student_id: student.studentId,
           },
@@ -1015,7 +1287,7 @@ router.delete(
       const { id: courseId, studentId } = req.params;
 
       // Check if user is creator
-      if (!(await Course.isCreator(courseId, req.user.id))) {
+      if (!(await isCreator(courseId, req.user.id))) {
         return res.status(403).json({
           success: false,
           message: 'You can only remove students from courses you created',
@@ -1023,7 +1295,7 @@ router.delete(
       }
 
       // Check if student is enrolled
-      if (!(await Enrollment.isEnrolled(studentId, courseId))) {
+      if (!(await isEnrolled(studentId, courseId))) {
         return res.status(404).json({
           success: false,
           message: 'Student is not enrolled in this course',
@@ -1031,15 +1303,15 @@ router.delete(
       }
 
       // Remove enrollment
-      await Enrollment.unenroll(studentId, courseId);
+      await unenroll(studentId, courseId);
 
       // Get course and student for notification
-      const course = await Course.findById(courseId);
-      const student = await User.findById(studentId);
+      const course = await getCourseById(courseId);
+      const student = await getUserById(studentId);
 
       // Send notification to student
       if (student) {
-        await Notification.create({
+        await createNotification({
           userId: studentId,
           title: 'Course Unenrollment',
           message: `You have been removed from ${course.courseName}`,

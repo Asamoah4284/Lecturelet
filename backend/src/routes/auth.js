@@ -1,7 +1,32 @@
+/**
+ * Authentication Routes
+ * Handles Firebase Authentication (email/password)
+ * 
+ * IMPORTANT: We maintain API compatibility by:
+ * 1. Storing password hash in Firestore for server-side verification
+ * 2. Creating Firebase Auth users with Admin SDK
+ * 3. Returning custom tokens that clients exchange for ID tokens
+ */
+
 const express = require('express');
 const { body } = require('express-validator');
-const { User, College, Course, Enrollment, Notification } = require('../models');
-const { authenticate, generateToken } = require('../middleware/auth');
+const bcrypt = require('bcryptjs');
+const { auth, admin } = require('../config/firebase');
+const { 
+  createUser, 
+  getUserByPhoneNumber, 
+  phoneNumberExists,
+  updateUser,
+  getUserById,
+  deleteUser,
+  startTrial,
+  toPublicJSON,
+} = require('../services/firestore/users');
+const { initializeColleges, getActiveColleges, collegeExists } = require('../services/firestore/colleges');
+const { getCoursesByCreator } = require('../services/firestore/courses');
+const { deleteAllForUser } = require('../services/firestore/enrollments');
+const { deleteAllForUser: deleteAllNotifications } = require('../services/firestore/notifications');
+const { authenticate } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 
 const router = express.Router();
@@ -10,6 +35,9 @@ const router = express.Router();
  * @route   POST /api/auth/login
  * @desc    Login user with phone number and password
  * @access  Public
+ * 
+ * Note: This endpoint verifies credentials and returns a custom token.
+ * Client should exchange this for an ID token using Firebase SDK.
  */
 router.post(
   '/login',
@@ -26,18 +54,26 @@ router.post(
   async (req, res) => {
     try {
       const { phoneNumber, password } = req.body;
+      const normalizedPhone = phoneNumber.trim();
 
-      // Find user by phone number
-      const user = await User.findByPhoneNumber(phoneNumber);
-      if (!user) {
+      // Find user by phone number in Firestore
+      const userDoc = await getUserByPhoneNumber(normalizedPhone);
+      if (!userDoc) {
         return res.status(401).json({
           success: false,
           message: 'Invalid phone number or password',
         });
       }
 
-      // Verify password
-      const isPasswordValid = user.verifyPassword(password);
+      // Verify password hash stored in Firestore
+      if (!userDoc.passwordHash) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid phone number or password',
+        });
+      }
+
+      const isPasswordValid = bcrypt.compareSync(password, userDoc.passwordHash);
       if (!isPasswordValid) {
         return res.status(401).json({
           success: false,
@@ -45,18 +81,46 @@ router.post(
         });
       }
 
-      // Generate token
-      const token = generateToken(user._id);
+      // Firebase Auth uses email format: phone@lecturelet.app
+      const email = `${normalizedPhone}@lecturelet.app`;
 
-      // Return user data (without password)
-      res.json({
-        success: true,
-        message: 'Login successful',
-        data: {
-          token,
-          user: user.toPublicJSON(),
-        },
-      });
+      try {
+        // Verify user exists in Firebase Auth and get their UID
+        let firebaseUser;
+        try {
+          firebaseUser = await auth.getUserByEmail(email);
+        } catch (error) {
+          if (error.code === 'auth/user-not-found') {
+            return res.status(401).json({
+              success: false,
+              message: 'Invalid phone number or password',
+            });
+          }
+          throw error;
+        }
+
+        // Create a custom token with role claim
+        const customToken = await auth.createCustomToken(firebaseUser.uid, {
+          role: userDoc.role,
+        });
+
+        // Return user data with custom token
+        // Client should use Firebase SDK to sign in with custom token
+        res.json({
+          success: true,
+          message: 'Login successful',
+          data: {
+            token: customToken, // Custom token - client exchanges for ID token
+            user: toPublicJSON(userDoc),
+          },
+        });
+      } catch (firebaseError) {
+        console.error('Firebase Auth error:', firebaseError);
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid phone number or password',
+        });
+      }
     } catch (error) {
       console.error('Login error:', error);
       res.status(500).json({
@@ -69,7 +133,7 @@ router.post(
 
 /**
  * @route   POST /api/auth/signup
- * @desc    Register a new user
+ * @desc    Register a new user with Firebase Auth
  * @access  Public
  */
 router.post(
@@ -95,23 +159,26 @@ router.post(
     body('college')
       .optional()
       .trim(),
+    body('program')
+      .optional()
+      .trim(),
   ],
   validate,
   async (req, res) => {
     try {
-      const { phoneNumber, password, fullName, role, studentId, college } = req.body;
+      const { phoneNumber, password, fullName, role, studentId, college, program } = req.body;
+      const normalizedPhone = phoneNumber.trim();
+      // Will hold the created Firebase Auth user so we can clean it up on failure
+      let firebaseUser = null;
 
-      // Normalize college value: convert "None", empty string, or null to null
+      // Normalize college value
       let normalizedCollege = null;
       if (college && college.trim() && college.trim() !== 'None') {
         normalizedCollege = college.trim();
 
-        // Validate college exists in database
-        const collegeExists = await College.findOne({
-          name: normalizedCollege,
-          isActive: true
-        });
-        if (!collegeExists) {
+        // Validate college exists
+        const exists = await collegeExists(normalizedCollege);
+        if (!exists) {
           return res.status(400).json({
             success: false,
             message: 'Invalid college selection',
@@ -120,7 +187,7 @@ router.post(
       }
 
       // Check if phone number already exists
-      const phoneExists = await User.phoneNumberExists(phoneNumber);
+      const phoneExists = await phoneNumberExists(normalizedPhone);
       if (phoneExists) {
         return res.status(409).json({
           success: false,
@@ -128,39 +195,76 @@ router.post(
         });
       }
 
-      // Create new user
-      const user = new User({
-        phoneNumber: phoneNumber.trim(),
-        password,
+      // Hash password for storage in Firestore
+      const passwordHash = bcrypt.hashSync(password, 10);
+
+      // Create Firebase Auth user (using phone as email)
+      const email = `${normalizedPhone}@lecturelet.app`;
+      try {
+        // Create user with Admin SDK
+        firebaseUser = await auth.createUser({
+          email,
+          password, // Firebase Auth will hash this
+          emailVerified: false,
+          disabled: false,
+        });
+      } catch (firebaseError) {
+        if (firebaseError.code === 'auth/email-already-exists') {
+          return res.status(409).json({
+            success: false,
+            message: 'Phone number already registered',
+          });
+        }
+        throw firebaseError;
+      }
+
+      // Create user document in Firestore (with password hash for server-side verification)
+      const userRole = role === 'rep' ? 'course_rep' : role;
+      const userDoc = await createUser(firebaseUser.uid, {
+        phoneNumber: normalizedPhone,
+        passwordHash, // Store hash for server-side verification
         fullName: fullName.trim(),
-        role,
+        role: userRole,
         studentId: studentId ? studentId.trim() : null,
         college: normalizedCollege,
+        program: program ? program.trim() : null,
+        notificationsEnabled: true,
+        reminderMinutes: 15,
+        notificationSound: 'default',
+        paymentStatus: false,
+        trialStartDate: null,
+        trialEndDate: null,
       });
 
-      await user.save();
+      // Set custom claims for role-based access
+      await auth.setCustomUserClaims(firebaseUser.uid, {
+        role: userRole,
+      });
 
-      // Generate token
-      const token = generateToken(user._id);
+      // Create custom token (client will exchange for ID token)
+      const customToken = await auth.createCustomToken(firebaseUser.uid, {
+        role: userRole,
+      });
 
       // Return user data (without password)
       res.status(201).json({
         success: true,
         message: 'Account created successfully',
         data: {
-          token,
-          user: user.toPublicJSON(),
+          token: customToken, // Custom token - client exchanges for ID token
+          user: toPublicJSON(userDoc),
         },
       });
     } catch (error) {
       console.error('Signup error:', error);
 
-      // Handle duplicate key error (MongoDB)
-      if (error.code === 11000) {
-        return res.status(409).json({
-          success: false,
-          message: 'Phone number already registered',
-        });
+      // Clean up Firebase Auth user if Firestore creation failed
+      if (firebaseUser && firebaseUser.uid) {
+        try {
+          await auth.deleteUser(firebaseUser.uid);
+        } catch (deleteError) {
+          console.error('Error cleaning up Firebase user:', deleteError);
+        }
       }
 
       res.status(500).json({
@@ -178,9 +282,8 @@ router.post(
  */
 router.get('/profile', authenticate, async (req, res) => {
   try {
-    // req.user.id is the string ID from toPublicJSON()
-    const user = await User.findById(req.user.id);
-    if (!user) {
+    const userDoc = await getUserById(req.user.id);
+    if (!userDoc) {
       return res.status(404).json({
         success: false,
         message: 'User not found',
@@ -190,7 +293,7 @@ router.get('/profile', authenticate, async (req, res) => {
     res.json({
       success: true,
       data: {
-        user: user.toPublicJSON(),
+        user: toPublicJSON(userDoc),
       },
     });
   } catch (error) {
@@ -219,9 +322,8 @@ router.put(
   validate,
   async (req, res) => {
     try {
-      // req.user.id is the string ID from toPublicJSON()
-      const user = await User.findById(req.user.id);
-      if (!user) {
+      const userDoc = await getUserById(req.user.id);
+      if (!userDoc) {
         return res.status(404).json({
           success: false,
           message: 'User not found',
@@ -229,29 +331,34 @@ router.put(
       }
 
       const { notificationsEnabled, reminderMinutes, notificationSound, role } = req.body;
+      const updates = {};
 
       if (notificationsEnabled !== undefined) {
-        user.notificationsEnabled = notificationsEnabled;
+        updates.notificationsEnabled = notificationsEnabled;
       }
       if (reminderMinutes !== undefined) {
-        user.reminderMinutes = reminderMinutes;
+        updates.reminderMinutes = reminderMinutes;
       }
       if (notificationSound !== undefined) {
-        user.notificationSound = notificationSound;
+        updates.notificationSound = notificationSound;
       }
       if (role !== undefined) {
-        console.log(`Updating user ${user._id} role from ${user.role} to ${role}`);
-        user.role = role;
+        const normalizedRole = role === 'rep' ? 'course_rep' : role;
+        updates.role = normalizedRole;
+        
+        // Update custom claims
+        await auth.setCustomUserClaims(req.user.id, {
+          role: normalizedRole,
+        });
       }
 
-      await user.save();
-      console.log(`User ${user._id} saved successfully with role: ${user.role}`);
+      const updatedUser = await updateUser(req.user.id, updates);
 
       res.json({
         success: true,
         message: 'Profile updated successfully',
         data: {
-          user: user.toPublicJSON(),
+          user: toPublicJSON(updatedUser),
         },
       });
     } catch (error) {
@@ -266,21 +373,20 @@ router.put(
 
 /**
  * @route   GET /api/auth/colleges
- * @desc    Get list of available colleges from database
+ * @desc    Get list of available colleges
  * @access  Public
  */
 router.get('/colleges', async (req, res) => {
   try {
-    const colleges = await College.find({ isActive: true })
-      .sort({ name: 1 })
-      .select('name -_id');
-
-    const collegeNames = colleges.map(college => college.name);
+    // Ensure colleges are initialized
+    await initializeColleges();
+    
+    const colleges = await getActiveColleges();
 
     res.json({
       success: true,
       data: {
-        colleges: collegeNames,
+        colleges,
       },
     });
   } catch (error) {
@@ -299,9 +405,8 @@ router.get('/colleges', async (req, res) => {
  */
 router.delete('/account', authenticate, async (req, res) => {
   try {
-    // req.user.id is the string ID from toPublicJSON()
-    const user = await User.findById(req.user.id);
-    if (!user) {
+    const userDoc = await getUserById(req.user.id);
+    if (!userDoc) {
       return res.status(404).json({
         success: false,
         message: 'User not found',
@@ -309,8 +414,8 @@ router.delete('/account', authenticate, async (req, res) => {
     }
 
     // Check if user is a course_rep with created courses
-    if (user.role === 'course_rep') {
-      const coursesCreated = await Course.findByCreator(req.user.id);
+    if (userDoc.role === 'course_rep') {
+      const coursesCreated = await getCoursesByCreator(req.user.id);
       if (coursesCreated && coursesCreated.length > 0) {
         return res.status(403).json({
           success: false,
@@ -320,13 +425,16 @@ router.delete('/account', authenticate, async (req, res) => {
     }
 
     // Delete all enrollments for this user
-    await Enrollment.deleteMany({ userId: req.user.id });
+    await deleteAllForUser(req.user.id);
 
     // Delete all notifications for this user
-    await Notification.deleteAllForUser(req.user.id);
+    await deleteAllNotifications(req.user.id);
 
-    // Delete the user account
-    await User.findByIdAndDelete(req.user.id);
+    // Delete user document from Firestore
+    await deleteUser(req.user.id);
+
+    // Delete Firebase Auth user
+    await auth.deleteUser(req.user.id);
 
     res.json({
       success: true,

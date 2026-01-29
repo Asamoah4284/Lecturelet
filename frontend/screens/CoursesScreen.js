@@ -1151,6 +1151,12 @@ const CoursesScreen = ({ navigation }) => {
                       <Ionicons name="create-outline" size={18} color="#2563eb" />
                     </TouchableOpacity>
                     <TouchableOpacity
+                      style={styles.actionButtonUpload}
+                      onPress={() => navigation.navigate('CourseMaterials', { course })}
+                    >
+                      <Ionicons name="cloud-upload-outline" size={18} color="#0ea5e9" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
                       style={[styles.actionButtonDelete, isDeleting && styles.deleteButtonDisabled]}
                       onPress={() => handleDeleteCourse(course)}
                       disabled={isDeleting}
@@ -1526,6 +1532,21 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   actionButtonEdit: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  actionButtonUpload: {
     width: 40,
     height: 40,
     borderRadius: 8,

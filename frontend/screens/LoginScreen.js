@@ -17,6 +17,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Button from '../components/Button';
 import { getApiUrl } from '../config/api';
 import { initializeNotifications } from '../services/notificationService';
+import { auth } from '../config/firebase';
+import { signInWithCustomToken } from 'firebase/auth';
 
 const LoginScreen = ({ navigation }) => {
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -59,9 +61,19 @@ const LoginScreen = ({ navigation }) => {
       }
 
       if (data.success && data.data) {
-        // Store token and user data
-        await AsyncStorage.setItem('@auth_token', data.data.token);
-        await AsyncStorage.setItem('@user_data', JSON.stringify(data.data.user));
+        // Use Firebase Auth to exchange custom token for an ID token
+        try {
+          const customToken = data.data.token;
+          const userCredential = await signInWithCustomToken(auth, customToken);
+          const idToken = await userCredential.user.getIdToken();
+
+          // Store ID token (used by backend) and user data
+          await AsyncStorage.setItem('@auth_token', idToken);
+          await AsyncStorage.setItem('@user_data', JSON.stringify(data.data.user));
+        } catch (firebaseError) {
+          console.error('Error signing in with Firebase custom token:', firebaseError);
+          throw new Error('Login failed. Please try again.');
+        }
 
         // Register push token for notifications (if notifications are enabled)
         // Force registration during login to ensure token is registered with user account

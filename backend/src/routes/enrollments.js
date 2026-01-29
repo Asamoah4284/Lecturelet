@@ -1,6 +1,21 @@
 const express = require('express');
 const { body, param } = require('express-validator');
-const { Course, Enrollment, Notification, User } = require('../models');
+const coursesService = require('../services/firestore/courses');
+const enrollmentsService = require('../services/firestore/enrollments');
+const notificationsService = require('../services/firestore/notifications');
+const usersService = require('../services/firestore/users');
+
+// Destructure with aliases
+const { getCourseByUniqueCode, getCourseById } = coursesService;
+const courseToJSON = coursesService.toJSON;
+
+const { enroll, getStudentCourses, isEnrolled, unenroll } = enrollmentsService;
+const getEnrollmentCount = enrollmentsService.getCount;
+
+const { createNotification } = notificationsService;
+
+const { getUserById, hasActiveAccess, startTrial } = usersService;
+const toPublicJSON = usersService.toPublicJSON;
 const { authenticate, authorize } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 
@@ -27,7 +42,7 @@ router.post(
       const { uniqueCode } = req.body;
 
       // Find course by unique code
-      const course = await Course.findByUniqueCode(uniqueCode);
+      const course = await getCourseByUniqueCode(uniqueCode);
       if (!course) {
         return res.status(404).json({
           success: false,
@@ -36,7 +51,7 @@ router.post(
       }
 
       // Check if already enrolled
-      if (await Enrollment.isEnrolled(req.user.id, course._id)) {
+      if (await isEnrolled(req.user.id, course.id)) {
         return res.status(409).json({
           success: false,
           message: 'You are already enrolled in this course',
@@ -45,8 +60,8 @@ router.post(
 
       // Check access and handle trial (only for students)
       if (req.user.role === 'student') {
-        const user = await User.findById(req.user.id);
-        if (!user) {
+        const userDoc = await getUserById(req.user.id);
+        if (!userDoc) {
           return res.status(404).json({
             success: false,
             message: 'User not found',
@@ -54,40 +69,40 @@ router.post(
         }
 
         // Check if user has active access (payment OR active trial)
-        if (!user.hasActiveAccess()) {
+        if (!hasActiveAccess(userDoc)) {
           // Check if this is their first enrollment
-          const existingEnrollments = await Enrollment.find({ userId: req.user.id });
+          const existingCourses = await getStudentCourses(req.user.id);
           
-          if (existingEnrollments.length === 0) {
+          if (existingCourses.length === 0) {
             // First enrollment - start free trial
-            await user.startTrial();
+            await startTrial(req.user.id);
             // Reload user to get updated trial info
-            await user.save();
-            const updatedUser = await User.findById(req.user.id);
+            const updatedUser = await getUserById(req.user.id);
             
             // Create enrollment
-            const enrollment = await Enrollment.enroll(req.user.id, course._id);
+            await enroll(req.user.id, course.id);
 
             // Send notification to course rep
-            await Notification.create({
-              userId: course.createdBy._id || course.createdBy,
+            await createNotification({
+              userId: course.createdBy,
               title: 'New Student Enrolled',
               message: `${req.user.full_name} has enrolled in ${course.courseName}`,
               type: 'announcement',
-              courseId: course._id,
+              courseId: course.id,
             });
+
+            const userPublicJSON = toPublicJSON(updatedUser);
 
             return res.status(201).json({
               success: true,
               message: `Successfully enrolled in ${course.courseName}. Your 7-day free trial has started!`,
               data: {
-                course,
-                enrollment,
+                course: courseToJSON(course),
                 trial: {
                   started: true,
-                  start_date: updatedUser.trialStartDate,
-                  end_date: updatedUser.trialEndDate,
-                  days_remaining: updatedUser.toPublicJSON().days_remaining,
+                  start_date: updatedUser.trialStartDate?.toDate?.() || updatedUser.trialStartDate,
+                  end_date: updatedUser.trialEndDate?.toDate?.() || updatedUser.trialEndDate,
+                  days_remaining: userPublicJSON.days_remaining,
                 },
               },
             });
@@ -102,23 +117,22 @@ router.post(
       }
 
       // Create enrollment
-      const enrollment = await Enrollment.enroll(req.user.id, course._id);
+      await enroll(req.user.id, course.id);
 
       // Send notification to course rep
-      await Notification.create({
-        userId: course.createdBy._id || course.createdBy,
+      await createNotification({
+        userId: course.createdBy,
         title: 'New Student Enrolled',
         message: `${req.user.full_name} has enrolled in ${course.courseName}`,
         type: 'announcement',
-        courseId: course._id,
+        courseId: course.id,
       });
 
       res.status(201).json({
         success: true,
         message: `Successfully enrolled in ${course.courseName}`,
         data: {
-          course,
-          enrollment,
+          course: courseToJSON(course),
         },
       });
     } catch (error) {
@@ -148,12 +162,12 @@ router.get(
   authorize('student'),
   async (req, res) => {
     try {
-      const courses = await Enrollment.getStudentCourses(req.user.id);
+      const courses = await getStudentCourses(req.user.id);
 
       // Get student count for each course
       const coursesWithCount = await Promise.all(
         courses.map(async (course) => {
-          const studentCount = await Enrollment.getCount(course.id);
+          const studentCount = await getEnrollmentCount(course.id);
           return {
             ...course,
             student_count: studentCount,
@@ -192,7 +206,7 @@ router.delete(
       const { courseId } = req.params;
 
       // Check if enrolled
-      if (!(await Enrollment.isEnrolled(req.user.id, courseId))) {
+      if (!(await isEnrolled(req.user.id, courseId))) {
         return res.status(404).json({
           success: false,
           message: 'You are not enrolled in this course',
@@ -200,10 +214,10 @@ router.delete(
       }
 
       // Get course name for message
-      const course = await Course.findById(courseId);
+      const course = await getCourseById(courseId);
 
       // Remove enrollment
-      await Enrollment.unenroll(req.user.id, courseId);
+      await unenroll(req.user.id, courseId);
 
       res.json({
         success: true,
@@ -230,12 +244,12 @@ router.get(
   async (req, res) => {
     try {
       const { courseId } = req.params;
-      const isEnrolled = await Enrollment.isEnrolled(req.user.id, courseId);
+      const enrolled = await isEnrolled(req.user.id, courseId);
 
       res.json({
         success: true,
         data: {
-          isEnrolled,
+          isEnrolled: enrolled,
         },
       });
     } catch (error) {

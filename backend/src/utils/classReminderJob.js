@@ -1,5 +1,9 @@
-const { User, Enrollment, Course, Notification, DeviceToken } = require('../models');
-const { sendPushNotification } = require('./pushNotificationService');
+const { getUserById, hasActiveAccess } = require('../services/firestore/users');
+const { getStudentCourses } = require('../services/firestore/enrollments');
+const { getActiveTokens } = require('../services/firestore/deviceTokens');
+const { deactivateToken } = require('../services/firestore/deviceTokens');
+const { createNotification } = require('../services/firestore/notifications');
+const { sendPushNotification } = require('../services/fcm/pushNotificationService');
 
 // In-memory cache to track sent notifications
 // Key format: `${userId}_${courseId}_${dateString}`
@@ -184,6 +188,23 @@ const markNotificationSent = (userId, courseId) => {
 };
 
 /**
+ * Get all users with notifications enabled
+ * Note: This queries Firestore for users with notificationsEnabled=true
+ */
+const getUsersWithNotifications = async () => {
+  const { firestore } = require('../config/firebase');
+  const usersRef = firestore.collection('users');
+  const snapshot = await usersRef
+    .where('notificationsEnabled', '==', true)
+    .get();
+
+  return snapshot.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data(),
+  }));
+};
+
+/**
  * Process class reminders for all users
  * This is the main function that runs periodically
  */
@@ -194,14 +215,11 @@ const processClassReminders = async () => {
     // Clear old cache entries
     clearOldCacheEntries();
 
-    // Get all users with notifications enabled and push tokens
-    const users = await User.find({
-      notificationsEnabled: true,
-      pushToken: { $ne: null, $exists: true },
-    });
+    // Get all users with notifications enabled
+    const users = await getUsersWithNotifications();
 
     if (users.length === 0) {
-      console.log('No users with notifications enabled and push tokens');
+      console.log('No users with notifications enabled');
       return { processed: 0, sent: 0 };
     }
 
@@ -211,60 +229,48 @@ const processClassReminders = async () => {
 
     for (const user of users) {
       try {
-        // Verify user has push token
-        if (!user.pushToken) {
-          console.log(`User ${user._id} (${user.fullName}) has no push token, skipping`);
-          continue;
-        }
+        // Get full user document to check access
+        const userDoc = await getUserById(user.id);
+        if (!userDoc) continue;
 
         // Check if user has active access (payment OR active trial)
-        if (!user.hasActiveAccess()) {
-          console.log(`User ${user._id} (${user.fullName}) does not have active access (trial expired, no payment), skipping notifications`);
+        if (!hasActiveAccess(userDoc)) {
+          console.log(`User ${user.id} (${userDoc.fullName}) does not have active access (trial expired, no payment), skipping notifications`);
           continue;
         }
 
         // Get all courses the user is enrolled in
-        const enrollments = await Enrollment.find({ userId: user._id })
-          .populate('courseId');
+        const courses = await getStudentCourses(user.id);
 
-        if (enrollments.length === 0) {
-          console.log(`User ${user._id} has no enrolled courses`);
+        if (courses.length === 0) {
+          console.log(`User ${user.id} has no enrolled courses`);
           continue;
         }
 
-        console.log(`Processing ${enrollments.length} courses for user ${user._id} (${user.fullName})`);
+        console.log(`Processing ${courses.length} courses for user ${user.id} (${userDoc.fullName})`);
 
-        for (const enrollment of enrollments) {
-          const course = enrollment.courseId;
-          if (!course) {
-            console.log(`Course not found for enrollment ${enrollment._id}`);
+        for (const course of courses) {
+          if (!course || !course.id) {
+            console.log(`Invalid course data for user ${user.id}`);
             continue;
           }
 
           totalProcessed++;
 
           // Check if notification was already sent today
-          if (wasNotificationSent(user._id.toString(), course._id.toString())) {
-            console.log(`Notification already sent today for user ${user._id}, course ${course.courseName}`);
+          if (wasNotificationSent(user.id, course.id)) {
+            console.log(`Notification already sent today for user ${user.id}, course ${course.courseName}`);
             continue;
           }
 
           // Calculate next class time
           const nextClassTime = calculateNextClassTime(course, now);
           if (!nextClassTime) {
-            console.log(`No next class time found for user ${user._id}, course ${course.courseName}`, {
-              courseDays: course.days,
-              courseStartTime: course.startTime,
-              courseEndTime: course.endTime,
-              dayTimes: course.dayTimes,
-              currentTime: now.toISOString(),
-              currentDay: now.toLocaleDateString('en-US', { weekday: 'long' }),
-              note: 'Class time may be more than 30 minutes in the past, or dayTimes may need updating'
-            });
+            console.log(`No next class time found for user ${user.id}, course ${course.courseName}`);
             continue;
           }
 
-          console.log(`Found next class time for user ${user._id}, course ${course.courseName}:`, {
+          console.log(`Found next class time for user ${user.id}, course ${course.courseName}:`, {
             classTime: nextClassTime.toISOString(),
             classTimeLocal: nextClassTime.toLocaleString(),
             currentTime: now.toISOString(),
@@ -272,24 +278,10 @@ const processClassReminders = async () => {
           });
 
           // Check if notification should be sent
-          const reminderMinutes = user.reminderMinutes || 15;
+          const reminderMinutes = userDoc.reminderMinutes || 15;
           const shouldSend = shouldSendNotification(nextClassTime, reminderMinutes, now);
 
           if (!shouldSend) {
-            // Log why notification wasn't sent for debugging
-            const reminderTime = new Date(nextClassTime);
-            reminderTime.setMinutes(reminderTime.getMinutes() - reminderMinutes);
-            const timeUntilClass = nextClassTime.getTime() - now.getTime();
-            const timeUntilReminder = reminderTime.getTime() - now.getTime();
-
-            console.log(`Skipping notification for user ${user._id}, course ${course.courseName}:`, {
-              classTime: nextClassTime.toISOString(),
-              reminderTime: reminderTime.toISOString(),
-              currentTime: now.toISOString(),
-              timeUntilClass: Math.round(timeUntilClass / 1000 / 60) + ' minutes',
-              timeUntilReminder: Math.round(timeUntilReminder / 1000 / 60) + ' minutes',
-              reminderMinutes: reminderMinutes
-            });
             continue;
           }
 
@@ -310,19 +302,19 @@ const processClassReminders = async () => {
 
           // Create notification message with user's name
           const venue = course.venue ? ` at ${course.venue}` : '';
-          const userName = user.fullName || 'Student';
+          const userName = userDoc.fullName || 'Student';
           const title = 'Class Reminder';
           const body = `Hi ${userName}, your ${course.courseName} class starts in ${reminderMinutes} minutes${venue}. Time: ${timeStr}${indexRangeText}`;
 
-          // ✅ NEW: Get ALL active device tokens for this user (multi-device support)
-          const deviceTokens = await DeviceToken.getActiveTokens(user._id);
+          // Get ALL active device tokens for this user (multi-device support)
+          const deviceTokens = await getActiveTokens(user.id);
 
           if (deviceTokens.length === 0) {
-            console.log(`User ${user._id} has no active device tokens, skipping`);
+            console.log(`User ${user.id} has no active device tokens, skipping`);
             continue;
           }
 
-          console.log(`Sending notification to user ${user._id} (${deviceTokens.length} device${deviceTokens.length > 1 ? 's' : ''})`);
+          console.log(`Sending notification to user ${user.id} (${deviceTokens.length} device${deviceTokens.length > 1 ? 's' : ''})`);
 
           // Send notification to ALL devices
           let sentToAnyDevice = false;
@@ -335,11 +327,11 @@ const processClassReminders = async () => {
               title,
               body,
               {
-                courseId: course._id.toString(),
+                courseId: course.id,
                 courseName: course.courseName,
                 type: 'lecture_reminder',
-                sound: user.notificationSound && user.notificationSound !== 'default'
-                  ? `${user.notificationSound}.wav`
+                sound: userDoc.notificationSound && userDoc.notificationSound !== 'default'
+                  ? `${userDoc.notificationSound}.wav`
                   : 'default',
               }
             );
@@ -351,8 +343,8 @@ const processClassReminders = async () => {
               console.error(`❌ Failed to send to ${device.platform} device:`, result.error || result.errors);
 
               // Deactivate invalid tokens automatically
-              if (result.error && (result.error.includes('DeviceNotRegistered') || result.error.includes('InvalidCredentials'))) {
-                await DeviceToken.deactivateToken(device.pushToken);
+              if (result.shouldRemoveToken || (result.error && (result.error.includes('DeviceNotRegistered') || result.error.includes('InvalidCredentials')))) {
+                await deactivateToken(device.pushToken);
                 console.log(`⚠️ Deactivated invalid token for ${device.platform} device`);
               }
             }
@@ -361,28 +353,27 @@ const processClassReminders = async () => {
           // Save in-app notification only once (not per device)
           if (sentToAnyDevice) {
             try {
-              await Notification.create({
-                userId: user._id,
+              await createNotification({
+                userId: user.id,
                 title: title,
                 message: body,
                 type: 'lecture_reminder',
-                courseId: course._id,
-                isRead: false,
+                courseId: course.id,
               });
-              console.log(`✅ Saved notification to database for user ${user._id}`);
+              console.log(`✅ Saved notification to database for user ${user.id}`);
             } catch (notifError) {
               console.error(`Error saving notification to database:`, notifError);
             }
 
-            markNotificationSent(user._id.toString(), course._id.toString());
+            markNotificationSent(user.id, course.id);
             totalSent++;
-            console.log(`✅ Sent class reminder to user ${user._id} for course ${course.courseName}`);
+            console.log(`✅ Sent class reminder to user ${user.id} for course ${course.courseName}`);
           } else {
-            console.error(`❌ Failed to send reminder to any device for user ${user._id}`);
+            console.error(`❌ Failed to send reminder to any device for user ${user.id}`);
           }
         }
       } catch (error) {
-        console.error(`Error processing reminders for user ${user._id}:`, error);
+        console.error(`Error processing reminders for user ${user.id}:`, error);
       }
     }
 
@@ -418,4 +409,3 @@ module.exports = {
   calculateNextClassTime,
   shouldSendNotification,
 };
-

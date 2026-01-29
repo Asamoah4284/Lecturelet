@@ -1,6 +1,7 @@
 /**
  * LectureLet Backend Server
  * University Course Management API
+ * Now using Firebase (Auth + Firestore + FCM) instead of MongoDB
  */
 
 require('dotenv').config();
@@ -10,7 +11,8 @@ const cors = require('cors');
 const config = require('./config');
 const routes = require('./routes');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
-const connectDB = require('./config/database');
+const { initializeFirebase } = require('./config/firebase');
+const { initializeColleges } = require('./services/firestore/colleges');
 const { startTemporaryEditResetJob } = require('./utils/temporaryEditReset');
 const { startClassReminderJob } = require('./utils/classReminderJob');
 const { startDeviceTokenCleanupJob } = require('./utils/deviceTokenCleanup');
@@ -44,6 +46,7 @@ app.get('/', (req, res) => {
     success: true,
     message: 'Welcome to LectureLet API',
     version: '1.0.0',
+    backend: 'Firebase (Auth + Firestore + FCM)',
     documentation: '/api/health',
     endpoints: {
       auth: '/api/auth',
@@ -59,11 +62,18 @@ app.get('/', (req, res) => {
 app.use(notFound);
 app.use(errorHandler);
 
-// Connect to MongoDB and start server
+// Initialize Firebase and start server
 const startServer = async () => {
   try {
-    // Connect to MongoDB
-    await connectDB();
+    // Initialize Firebase Admin SDK
+    console.log('🔥 Initializing Firebase...');
+    initializeFirebase();
+    console.log('✅ Firebase initialized successfully');
+
+    // Initialize colleges collection
+    console.log('🏛️  Initializing colleges...');
+    await initializeColleges();
+    console.log('✅ Colleges initialized');
 
     // Start temporary edit reset job (runs every hour)
     startTemporaryEditResetJob();
@@ -77,10 +87,11 @@ const startServer = async () => {
     // Start server
     const PORT = config.port;
     app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
+      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`📡 Backend: Firebase (Auth + Firestore + FCM)`);
     });
   } catch (error) {
-    console.error('Failed to start server:', error.message);
+    console.error('❌ Failed to start server:', error.message);
     process.exit(1);
   }
 };

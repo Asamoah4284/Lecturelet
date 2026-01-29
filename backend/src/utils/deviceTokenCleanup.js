@@ -1,4 +1,4 @@
-const { DeviceToken } = require('../models');
+const { cleanupOldTokens } = require('../services/firestore/deviceTokens');
 
 /**
  * Clean up inactive device tokens older than specified days
@@ -10,9 +10,11 @@ const cleanupInactiveTokens = async (daysOld = 30) => {
     try {
         console.log(`Starting device token cleanup (tokens inactive for ${daysOld}+ days)...`);
 
-        const deletedCount = await DeviceToken.cleanupOldTokens(daysOld);
+        const deletedCount = await cleanupOldTokens(daysOld);
 
-        console.log(`✅ Device token cleanup complete: ${deletedCount} tokens deleted`);
+        if (deletedCount > 0) {
+            console.log(`✅ Device token cleanup complete: ${deletedCount} tokens deleted`);
+        }
 
         return {
             success: true,
@@ -20,7 +22,8 @@ const cleanupInactiveTokens = async (daysOld = 30) => {
             message: `Cleaned up ${deletedCount} inactive device tokens`
         };
     } catch (error) {
-        console.error('❌ Error cleaning up device tokens:', error);
+        // Don't crash the server if index isn't created yet
+        console.warn('⚠️ Device token cleanup skipped:', error.message);
         return {
             success: false,
             error: error.message,
@@ -30,75 +33,31 @@ const cleanupInactiveTokens = async (daysOld = 30) => {
 };
 
 /**
- * Get statistics about device tokens
- * Useful for monitoring and analytics
- * @returns {Promise<Object>} Statistics object
- */
-const getDeviceTokenStats = async () => {
-    try {
-        const totalActive = await DeviceToken.countDocuments({ isActive: true });
-        const totalInactive = await DeviceToken.countDocuments({ isActive: false });
-        const iosCount = await DeviceToken.countDocuments({ platform: 'ios', isActive: true });
-        const androidCount = await DeviceToken.countDocuments({ platform: 'android', isActive: true });
-
-        // Get token age distribution
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-        const activeRecent = await DeviceToken.countDocuments({
-            isActive: true,
-            lastUsed: { $gte: thirtyDaysAgo }
-        });
-
-        const activeOld = await DeviceToken.countDocuments({
-            isActive: true,
-            lastUsed: { $lt: thirtyDaysAgo }
-        });
-
-        return {
-            total: totalActive + totalInactive,
-            active: totalActive,
-            inactive: totalInactive,
-            platforms: {
-                ios: iosCount,
-                android: androidCount
-            },
-            activeRecent,  // Used in last 30 days
-            activeOld,     // Not used in 30+ days (candidates for cleanup)
-            timestamp: new Date()
-        };
-    } catch (error) {
-        console.error('Error getting device token stats:', error);
-        return { error: error.message };
-    }
-};
-
-/**
- * Start the device token cleanup job
- * Runs periodically to remove old inactive tokens
+ * Start a periodic job to clean up old device tokens
+ * Runs daily at midnight
  */
 const startDeviceTokenCleanupJob = () => {
-    // Run first cleanup after 1 minute (allow server to fully start)
-    setTimeout(async () => {
-        console.log('🧹 Running initial device token cleanup...');
-        await cleanupInactiveTokens(30);
-    }, 60000); // 1 minute delay
+    // Run immediately on startup
+    cleanupInactiveTokens();
 
-    // Then run cleanup every 24 hours (86400000 milliseconds)
-    setInterval(async () => {
-        console.log('🧹 Running scheduled device token cleanup...');
-        await cleanupInactiveTokens(30);
+    // Calculate milliseconds until next midnight
+    const now = new Date();
+    const midnight = new Date();
+    midnight.setHours(24, 0, 0, 0);
+    const msUntilMidnight = midnight.getTime() - now.getTime();
 
-        // Also log statistics
-        const stats = await getDeviceTokenStats();
-        console.log('📊 Device Token Statistics:', stats);
-    }, 24 * 60 * 60 * 1000); // 24 hours
+    // Run at midnight, then every 24 hours
+    setTimeout(() => {
+        cleanupInactiveTokens();
+        setInterval(() => {
+            cleanupInactiveTokens();
+        }, 24 * 60 * 60 * 1000); // 24 hours
+    }, msUntilMidnight);
 
-    console.log('✅ Device token cleanup job started (runs daily at 3 AM)');
+    console.log('Device token cleanup job started (runs daily at midnight)');
 };
 
 module.exports = {
     cleanupInactiveTokens,
-    getDeviceTokenStats,
     startDeviceTokenCleanupJob,
 };

@@ -42,13 +42,14 @@ export const createNotificationChannel = async () => {
         await Notifications.setNotificationChannelAsync('default', {
           name: 'Lecture Reminders',
           description: 'Notifications for upcoming lectures and course updates',
-          importance: Notifications.AndroidImportance.HIGH, // HIGH = shows on lock screen and wakes device
+          importance: Notifications.AndroidImportance.MAX, // MAX = shows as heads-up pop-up
           vibrationPattern: [0, 250, 250, 250],
           lightColor: '#2563eb',
           sound: 'default',
           enableVibrate: true,
           showBadge: true,
-          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC, // Show on lock screen
+          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+          bypassDnd: true, // Allow notifications to bypass Do Not Disturb if high priority
         });
         console.log('Android notification channel created successfully');
       } else {
@@ -73,7 +74,7 @@ export const requestNotificationPermissions = async () => {
     let finalStatus = existingStatus;
 
     if (existingStatus !== 'granted') {
-      // Request permissions with all required options for iOS (alert, badge, sound)
+      // Request permissions with all required options
       const { status } = await Notifications.requestPermissionsAsync({
         ios: {
           allowAlert: true,
@@ -81,6 +82,7 @@ export const requestNotificationPermissions = async () => {
           allowSound: true,
           allowAnnouncements: false,
         },
+        android: {}, // Requests POST_NOTIFICATIONS on Android 13+
       });
       finalStatus = status;
     }
@@ -115,7 +117,7 @@ export const requestNotificationPermissions = async () => {
 };
 
 /**
- * Get the Expo push token for this device
+ * Get the native device push token for this device (FCM/APNs)
  * @returns {Promise<string|null>} Push token or null if unavailable
  */
 export const getPushToken = async () => {
@@ -126,83 +128,19 @@ export const getPushToken = async () => {
       return null;
     }
 
-    // Try to get projectId from various sources (CRITICAL for production builds)
-    let projectId = null;
+    // Use native device push token (FCM / APNs), not Expo push tokens
+    const tokenInfo = await Notifications.getDevicePushTokenAsync();
+    const token = tokenInfo?.data || tokenInfo?.token || null;
 
-    // Try EAS config first (production builds)
-    if (Constants.easConfig?.projectId) {
-      projectId = Constants.easConfig.projectId;
-      console.log('Using projectId from Constants.easConfig:', projectId);
-    }
-    // Try app.json extra config (most common in production)
-    else if (Constants.expoConfig?.extra?.eas?.projectId) {
-      projectId = Constants.expoConfig.extra.eas.projectId;
-      console.log('Using projectId from Constants.expoConfig.extra.eas:', projectId);
-    }
-    // Try direct extra config
-    else if (Constants.expoConfig?.extra?.projectId) {
-      projectId = Constants.expoConfig.extra.projectId;
-      console.log('Using projectId from Constants.expoConfig.extra:', projectId);
-    }
-    // Try manifest (for Expo Go/development)
-    else if (Constants.expoConfig?.projectId) {
-      projectId = Constants.expoConfig.projectId;
-      console.log('Using projectId from Constants.expoConfig:', projectId);
-    }
-    // Try manifest2 (for newer Expo versions)
-    else if (Constants.manifest2?.extra?.eas?.projectId) {
-      projectId = Constants.manifest2.extra.eas.projectId;
-      console.log('Using projectId from Constants.manifest2:', projectId);
+    if (token) {
+      console.log('✅ Device push token obtained successfully');
+      return token;
     }
 
-    // Build token options - projectId is REQUIRED for production builds
-    const tokenOptions = {};
-    if (projectId) {
-      tokenOptions.projectId = projectId;
-    } else {
-      console.warn(
-        '⚠️ No projectId found! Push notifications may not work in production builds. ' +
-        'Ensure your app.json has the projectId configured in extra.eas.projectId'
-      );
-    }
-
-    console.log('Requesting Expo push token with options:', { projectId: tokenOptions.projectId || 'none' });
-    const tokenData = await Notifications.getExpoPushTokenAsync(tokenOptions);
-
-    if (tokenData?.data) {
-      console.log('✅ Push token obtained successfully');
-      return tokenData.data;
-    } else {
-      console.error('❌ Push token data is empty');
-      return null;
-    }
+    console.error('❌ Device push token is empty');
+    return null;
   } catch (error) {
-    console.error('Error getting push token:', error);
-
-    // If it's a projectId error, provide helpful message
-    if (error.message && (error.message.includes('projectId') || error.message.includes('Project ID'))) {
-      console.error(
-        '❌ Push notifications require a projectId for production builds. ' +
-        'Please ensure your app.json has the projectId configured in extra.eas.projectId. ' +
-        'Current projectId from config:', Constants.expoConfig?.extra?.eas?.projectId || 'NOT FOUND'
-      );
-      return null;
-    }
-
-    // For other errors, try one more time with minimal options (may work in some cases)
-    try {
-      console.log('Attempting fallback method for push token...');
-      const tokenData = await Notifications.getExpoPushTokenAsync({
-        projectId: Constants.expoConfig?.extra?.eas?.projectId || undefined,
-      });
-      if (tokenData?.data) {
-        console.log('✅ Push token obtained via fallback method');
-        return tokenData.data;
-      }
-    } catch (retryError) {
-      console.error('Fallback method also failed:', retryError);
-    }
-
+    console.error('Error getting device push token:', error);
     return null;
   }
 };

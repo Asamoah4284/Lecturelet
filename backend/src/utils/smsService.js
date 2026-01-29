@@ -1,5 +1,5 @@
 const fetch = require('node-fetch');
-const { SmsLog } = require('../models');
+const { logSms } = require('../services/firestore/smsLogs');
 
 const MOOLRE_API_URL = 'https://api.moolre.com/open/sms/send';
 const WEEKLY_SMS_LIMIT = 5;
@@ -51,7 +51,7 @@ const sendSMS = async (phoneNumber, message, options = {}) => {
     // Moolre uses status: 1 for success
     if (responseData.status === 1 || responseData.code === 'SMS01' || responseData.message === 'Success') {
       if (options.userId) {
-        await SmsLog.logSms({
+        await logSms({
           userId: options.userId,
           phoneNumber: formattedPhone,
           message,

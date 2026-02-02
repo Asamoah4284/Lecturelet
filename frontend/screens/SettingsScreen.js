@@ -1051,27 +1051,6 @@ const SettingsContent = ({ navigation }) => {
           </View>
         )}
 
-        {/* Support Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Support</Text>
-
-          <TouchableOpacity style={styles.settingItem}>
-            <View style={styles.settingLeft}>
-              <Ionicons name="help-circle-outline" size={20} color="#6b7280" />
-              <Text style={styles.settingLabel}>Help & Support</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.settingItem}>
-            <View style={styles.settingLeft}>
-              <Ionicons name="shield-outline" size={20} color="#6b7280" />
-              <Text style={styles.settingLabel}>Privacy Policy</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
-          </TouchableOpacity>
-        </View>
-
         {/* Help Us Get Better Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Help Us Get Better</Text>
@@ -1097,6 +1076,27 @@ const SettingsContent = ({ navigation }) => {
                   Tell us how we can improve the app
                 </Text>
               </View>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Support Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Support</Text>
+
+          <TouchableOpacity style={styles.settingItem}>
+            <View style={styles.settingLeft}>
+              <Ionicons name="help-circle-outline" size={20} color="#6b7280" />
+              <Text style={styles.settingLabel}>Help & Support</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.settingItem}>
+            <View style={styles.settingLeft}>
+              <Ionicons name="shield-outline" size={20} color="#6b7280" />
+              <Text style={styles.settingLabel}>Privacy Policy</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
           </TouchableOpacity>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -24,15 +24,13 @@ const RoleSelectScreen = ({ navigation, route }) => {
   // Get signup data from route params if coming from signup
   const signupData = route?.params?.signupData;
 
-  // Disable back navigation when coming from signup
-  useEffect(() => {
+  const handleBack = () => {
     if (signupData) {
-      navigation.setOptions({
-        gestureEnabled: false,
-        headerLeft: null,
-      });
+      navigation.navigate('Signup');
+    } else {
+      navigation.goBack();
     }
-  }, [signupData, navigation]);
+  };
 
   const handleSelectRole = async (role) => {
     // If coming from signup, create account with selected role
@@ -219,6 +217,12 @@ const RoleSelectScreen = ({ navigation, route }) => {
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
+        {/* Back button */}
+        <TouchableOpacity style={styles.backButton} onPress={handleBack} activeOpacity={0.7}>
+          <Ionicons name="chevron-back" size={24} color="#111827" />
+          <Text style={styles.backButtonText}>Back</Text>
+        </TouchableOpacity>
+
         {/* Logo */}
         <View style={styles.logoWrapper}>
           <View style={styles.logoCircle}>
@@ -311,6 +315,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 40,
     paddingBottom: 32,
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginBottom: 16,
+    paddingVertical: 8,
+    paddingRight: 12,
+    paddingLeft: 0,
+  },
+  backButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginLeft: 2,
   },
   logoWrapper: {
     alignItems: 'center',

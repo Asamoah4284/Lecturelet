@@ -9,6 +9,7 @@ import AddCourseScreen from '../screens/AddCourseScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import SignupScreen from '../screens/SignupScreen';
 import LoginScreen from '../screens/LoginScreen';
+import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
 import RoleSelectScreen from '../screens/RoleSelectScreen';
 import CourseRepScreen from '../screens/CourseRepScreen';
 import CoursesScreen from '../screens/CoursesScreen';
@@ -107,6 +108,11 @@ const AppNavigator = () => {
             gestureEnabled: false,
             animationEnabled: false,
           }}
+        />
+        <Stack.Screen
+          name="ForgotPassword"
+          component={ForgotPasswordScreen}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="RoleSelect"

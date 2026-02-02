@@ -26,10 +26,298 @@ const { initializeColleges, getActiveColleges, collegeExists } = require('../ser
 const { getCoursesByCreator } = require('../services/firestore/courses');
 const { deleteAllForUser } = require('../services/firestore/enrollments');
 const { deleteAllForUser: deleteAllNotifications } = require('../services/firestore/notifications');
+const { createOrUpdate: createPhoneVerification, getByPhone: getPhoneVerification, markVerified: markPhoneVerified } = require('../services/firestore/phoneVerifications');
+const { createOrUpdate: createPasswordResetToken, getByPhone: getPasswordResetToken, deleteByPhone: deletePasswordResetToken } = require('../services/firestore/passwordResetTokens');
+const { sendSMS } = require('../utils/smsService');
 const { authenticate } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 
+/** Normalize phone to digits only (for storage/lookup) */
+function normalizePhoneDigits(phone) {
+  return (phone || '').trim().replace(/\D/g, '');
+}
+
 const router = express.Router();
+
+/** Verification valid for 10 minutes; signup must complete within 15 minutes of verify */
+const CODE_EXPIRY_MINUTES = 10;
+const VERIFIED_VALID_MINUTES = 15;
+
+/**
+ * @route   POST /api/auth/send-verification-code
+ * @desc    Send SMS verification code to phone (for signup)
+ * @access  Public
+ */
+router.post(
+  '/send-verification-code',
+  [
+    body('phoneNumber')
+      .trim()
+      .notEmpty()
+      .withMessage('Phone number is required'),
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      const rawPhone = req.body.phoneNumber.trim();
+      const normalizedPhone = rawPhone.replace(/[\s\-\(\)\+]/g, '').trim();
+      const phoneDigits = normalizePhoneDigits(normalizedPhone);
+      if (phoneDigits.length < 10) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please enter a valid phone number',
+        });
+      }
+
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      const expiresAt = new Date(Date.now() + CODE_EXPIRY_MINUTES * 60 * 1000);
+
+      await createPhoneVerification(normalizedPhone, code, expiresAt);
+
+      const message = `Your LectureLet verification code is ${code}. Valid for ${CODE_EXPIRY_MINUTES} minutes.`;
+      const smsResult = await sendSMS(normalizedPhone, message);
+
+      if (!smsResult.success) {
+        return res.status(503).json({
+          success: false,
+          message: 'Could not send SMS. Please check the number and try again.',
+        });
+      }
+
+      res.json({
+        success: true,
+        message: 'Verification code sent',
+      });
+    } catch (error) {
+      console.error('Send verification code error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to send verification code. Please try again.',
+      });
+    }
+  }
+);
+
+/**
+ * @route   POST /api/auth/verify-phone
+ * @desc    Verify phone with SMS code (must be done before signup)
+ * @access  Public
+ */
+router.post(
+  '/verify-phone',
+  [
+    body('phoneNumber')
+      .trim()
+      .notEmpty()
+      .withMessage('Phone number is required'),
+    body('code')
+      .trim()
+      .notEmpty()
+      .withMessage('Verification code is required')
+      .isLength({ min: 6, max: 6 })
+      .withMessage('Code must be 6 digits'),
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      const rawPhone = req.body.phoneNumber.trim();
+      const normalizedPhone = rawPhone.replace(/[\s\-\(\)\+]/g, '').trim();
+      const code = req.body.code.trim();
+
+      const record = await getPhoneVerification(normalizedPhone);
+      if (!record) {
+        return res.status(400).json({
+          success: false,
+          message: 'No verification found for this number. Please request a new code.',
+        });
+      }
+
+      const expiresAt = record.expiresAt?.toDate ? record.expiresAt.toDate() : record.expiresAt;
+      if (expiresAt && new Date() > expiresAt) {
+        return res.status(400).json({
+          success: false,
+          message: 'Verification code has expired. Please request a new code.',
+        });
+      }
+
+      if (record.code !== code) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid verification code.',
+        });
+      }
+
+      await markPhoneVerified(normalizedPhone, new Date());
+
+      res.json({
+        success: true,
+        message: 'Phone number verified',
+      });
+    } catch (error) {
+      console.error('Verify phone error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Verification failed. Please try again.',
+      });
+    }
+  }
+);
+
+/** Reset code valid for 15 minutes */
+const RESET_CODE_EXPIRY_MINUTES = 15;
+
+/**
+ * @route   POST /api/auth/forgot-password
+ * @desc    Send SMS reset code to registered phone number
+ * @access  Public
+ */
+router.post(
+  '/forgot-password',
+  [
+    body('phoneNumber')
+      .trim()
+      .notEmpty()
+      .withMessage('Phone number is required'),
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      const rawPhone = req.body.phoneNumber.trim();
+      const normalizedPhone = rawPhone.replace(/[\s\-\(\)\+]/g, '').trim();
+      const phoneDigits = normalizePhoneDigits(normalizedPhone);
+      if (phoneDigits.length < 10) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please enter a valid phone number',
+        });
+      }
+
+      const userDoc = await getUserByPhoneNumber(normalizedPhone);
+      if (!userDoc) {
+        return res.status(404).json({
+          success: false,
+          message: 'No account found with this phone number',
+        });
+      }
+
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      const expiresAt = new Date(Date.now() + RESET_CODE_EXPIRY_MINUTES * 60 * 1000);
+      await createPasswordResetToken(normalizedPhone, code, expiresAt);
+
+      const message = `Your LectureLet password reset code is ${code}. Valid for ${RESET_CODE_EXPIRY_MINUTES} minutes.`;
+      const smsResult = await sendSMS(normalizedPhone, message);
+
+      if (!smsResult.success) {
+        return res.status(503).json({
+          success: false,
+          message: 'Could not send SMS. Please check the number and try again.',
+        });
+      }
+
+      res.json({
+        success: true,
+        message: 'Reset code sent to your phone',
+      });
+    } catch (error) {
+      console.error('Forgot password error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to send reset code. Please try again.',
+      });
+    }
+  }
+);
+
+/**
+ * @route   POST /api/auth/reset-password
+ * @desc    Reset password using SMS code
+ * @access  Public
+ */
+router.post(
+  '/reset-password',
+  [
+    body('phoneNumber')
+      .trim()
+      .notEmpty()
+      .withMessage('Phone number is required'),
+    body('code')
+      .trim()
+      .notEmpty()
+      .withMessage('Reset code is required')
+      .isLength({ min: 6, max: 6 })
+      .withMessage('Code must be 6 digits'),
+    body('newPassword')
+      .isLength({ min: 6 })
+      .withMessage('Password must be at least 6 characters'),
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      const rawPhone = req.body.phoneNumber.trim();
+      const normalizedPhone = rawPhone.replace(/[\s\-\(\)\+]/g, '').trim();
+      const { code, newPassword } = req.body;
+
+      const record = await getPasswordResetToken(normalizedPhone);
+      if (!record) {
+        return res.status(400).json({
+          success: false,
+          message: 'No reset request found. Please request a new code.',
+        });
+      }
+
+      const expiresAt = record.expiresAt?.toDate ? record.expiresAt.toDate() : record.expiresAt;
+      if (expiresAt && new Date() > expiresAt) {
+        return res.status(400).json({
+          success: false,
+          message: 'Reset code has expired. Please request a new code.',
+        });
+      }
+
+      if (record.code !== code.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid reset code.',
+        });
+      }
+
+      const userDoc = await getUserByPhoneNumber(normalizedPhone);
+      if (!userDoc) {
+        return res.status(404).json({
+          success: false,
+          message: 'Account not found.',
+        });
+      }
+
+      const passwordHash = bcrypt.hashSync(newPassword, 10);
+      const email = `${normalizedPhone}@lecturelet.app`;
+
+      await updateUser(userDoc.id, { passwordHash });
+
+      try {
+        await auth.updateUser(userDoc.id, { password: newPassword });
+      } catch (firebaseError) {
+        console.error('Firebase updateUser error:', firebaseError);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to update password. Please try again.',
+        });
+      }
+
+      await deletePasswordResetToken(normalizedPhone);
+
+      res.json({
+        success: true,
+        message: 'Password updated successfully. You can log in with your new password.',
+      });
+    } catch (error) {
+      console.error('Reset password error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to reset password. Please try again.',
+      });
+    }
+  }
+);
 
 /**
  * @route   POST /api/auth/login
@@ -192,6 +480,26 @@ router.post(
         return res.status(409).json({
           success: false,
           message: 'Phone number already registered',
+        });
+      }
+
+      // Require phone to be verified via SMS before signup
+      const verification = await getPhoneVerification(normalizedPhone);
+      const rawVerifiedAt = verification?.verifiedAt;
+      const verifiedAt = rawVerifiedAt
+        ? (typeof rawVerifiedAt.toDate === 'function' ? rawVerifiedAt.toDate() : rawVerifiedAt)
+        : null;
+      if (!verification || !verification.verified || !verifiedAt) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please verify your phone number with the SMS code first.',
+        });
+      }
+      const verifiedAgeMinutes = (Date.now() - verifiedAt.getTime()) / (60 * 1000);
+      if (verifiedAgeMinutes > VERIFIED_VALID_MINUTES) {
+        return res.status(400).json({
+          success: false,
+          message: 'Phone verification expired. Please verify your number again.',
         });
       }
 

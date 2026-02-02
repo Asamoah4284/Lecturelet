@@ -10,49 +10,109 @@ import {
   Platform,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import Button from '../components/Button';
+import { getApiUrl } from '../config/api';
+
+const STEP_PHONE = 'phone';
+const STEP_CODE = 'code';
+const STEP_FORM = 'form';
 
 const SignupScreen = ({ navigation }) => {
-  const [fullName, setFullName] = useState('');
+  const [step, setStep] = useState(STEP_PHONE);
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [sendCodeLoading, setSendCodeLoading] = useState(false);
+  const [verifyLoading, setVerifyLoading] = useState(false);
+  const [fullName, setFullName] = useState('');
   const [program, setProgram] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+  const handleSendCode = async () => {
+    const trimmed = phoneNumber.trim();
+    if (!trimmed) {
+      Alert.alert('Validation Error', 'Please enter your phone number');
+      return;
+    }
+    setSendCodeLoading(true);
+    try {
+      const response = await fetch(getApiUrl('auth/send-verification-code'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phoneNumber: trimmed }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setStep(STEP_CODE);
+        setVerificationCode('');
+      } else {
+        Alert.alert('Error', data.message || 'Could not send verification code');
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Could not send verification code. Please try again.');
+    } finally {
+      setSendCodeLoading(false);
+    }
+  };
+
+  const handleVerifyCode = async () => {
+    const trimmed = phoneNumber.trim();
+    const code = verificationCode.trim();
+    if (!trimmed) {
+      Alert.alert('Validation Error', 'Please enter your phone number');
+      return;
+    }
+    if (code.length !== 6) {
+      Alert.alert('Validation Error', 'Please enter the 6-digit code');
+      return;
+    }
+    setVerifyLoading(true);
+    try {
+      const response = await fetch(getApiUrl('auth/verify-phone'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phoneNumber: trimmed, code }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setStep(STEP_FORM);
+      } else {
+        Alert.alert('Error', data.message || 'Invalid or expired code');
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Verification failed. Please try again.');
+    } finally {
+      setVerifyLoading(false);
+    }
+  };
 
   const handleSignUp = () => {
-    // Validate form
     if (!fullName.trim()) {
       Alert.alert('Validation Error', 'Please enter your full name');
       return;
     }
-
     if (!phoneNumber.trim()) {
       Alert.alert('Validation Error', 'Please enter your phone number');
       return;
     }
-
     if (!password) {
       Alert.alert('Validation Error', 'Please enter a password');
       return;
     }
-
     if (password.length < 6) {
       Alert.alert('Validation Error', 'Password must be at least 6 characters');
       return;
     }
-
     if (password !== confirmPassword) {
       Alert.alert('Validation Error', 'Passwords do not match');
       return;
     }
-
-    // Pass signup data to role selection screen
     navigation.replace('RoleSelect', {
       signupData: {
         fullName: fullName.trim(),
@@ -91,107 +151,179 @@ const SignupScreen = ({ navigation }) => {
 
           {/* Form */}
           <View style={styles.form}>
-            <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Full Name</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your full name"
-                placeholderTextColor="#9ca3af"
-                value={fullName}
-                onChangeText={setFullName}
-              />
-            </View>
+            {step === STEP_PHONE && (
+              <>
+                <Text style={styles.stepHint}>Verify your phone number with an SMS code before signing up.</Text>
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>Phone Number</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Enter your phone number"
+                    placeholderTextColor="#9ca3af"
+                    keyboardType="phone-pad"
+                    value={phoneNumber}
+                    onChangeText={setPhoneNumber}
+                    editable={!sendCodeLoading}
+                  />
+                </View>
+                <Button
+                  title={sendCodeLoading ? 'Sending…' : 'Send verification code'}
+                  onPress={handleSendCode}
+                  variant="primary"
+                  style={styles.signUpButton}
+                  disabled={sendCodeLoading}
+                />
+                {sendCodeLoading && (
+                  <ActivityIndicator size="small" color="#f97316" style={styles.loader} />
+                )}
+              </>
+            )}
 
-            <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Phone Number</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your phone number"
-                placeholderTextColor="#9ca3af"
-                keyboardType="phone-pad"
-                value={phoneNumber}
-                onChangeText={setPhoneNumber}
-              />
-            </View>
+            {step === STEP_CODE && (
+              <>
+                <Text style={styles.stepHint}>We sent a 6-digit code to {phoneNumber}. Enter it below.</Text>
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>Verification code</Text>
+                  <TextInput
+                    style={[styles.input, styles.codeInput]}
+                    placeholder="000000"
+                    placeholderTextColor="#9ca3af"
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    value={verificationCode}
+                    onChangeText={setVerificationCode}
+                    editable={!verifyLoading}
+                  />
+                </View>
+                <Button
+                  title={verifyLoading ? 'Verifying…' : 'Verify'}
+                  onPress={handleVerifyCode}
+                  variant="primary"
+                  style={styles.signUpButton}
+                  disabled={verifyLoading}
+                />
+                {verifyLoading && (
+                  <ActivityIndicator size="small" color="#f97316" style={styles.loader} />
+                )}
+                <TouchableOpacity
+                  style={styles.resendWrapper}
+                  onPress={handleSendCode}
+                  disabled={sendCodeLoading}
+                >
+                  <Text style={styles.resendText}>Didn’t get the code? Resend</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.backWrapper}
+                  onPress={() => setStep(STEP_PHONE)}
+                >
+                  <Text style={styles.backText}>Change phone number</Text>
+                </TouchableOpacity>
+              </>
+            )}
 
-            <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Program</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your program (e.g., Computer Science)"
-                placeholderTextColor="#9ca3af"
-                value={program}
-                onChangeText={setProgram}
-                autoCapitalize="words"
-              />
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Password</Text>
-              <View style={styles.passwordInputContainer}>
-                <TextInput
-                  style={styles.passwordInput}
-                  placeholder="Create a password"
-                  placeholderTextColor="#9ca3af"
-                  secureTextEntry={!showPassword}
-                  autoComplete="new-password"
-                  textContentType="newPassword"
-                  autoCapitalize="none"
-                  keyboardType="default"
-                  editable={true}
-                  importantForAutofill="no"
-                  value={password}
-                  onChangeText={setPassword}
+            {step === STEP_FORM && (
+              <>
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>Phone Number (verified)</Text>
+                  <TextInput
+                    style={[styles.input, styles.inputDisabled]}
+                    value={phoneNumber}
+                    editable={false}
+                  />
+                </View>
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>Full Name</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Enter your full name"
+                    placeholderTextColor="#9ca3af"
+                    value={fullName}
+                    onChangeText={setFullName}
+                  />
+                </View>
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>Program</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Enter your program (e.g., Computer Science)"
+                    placeholderTextColor="#9ca3af"
+                    value={program}
+                    onChangeText={setProgram}
+                    autoCapitalize="words"
+                  />
+                </View>
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>Password</Text>
+                  <View style={styles.passwordInputContainer}>
+                    <TextInput
+                      style={styles.passwordInput}
+                      placeholder="Create a password"
+                      placeholderTextColor="#9ca3af"
+                      secureTextEntry={!showPassword}
+                      autoComplete="new-password"
+                      textContentType="newPassword"
+                      autoCapitalize="none"
+                      keyboardType="default"
+                      editable={true}
+                      importantForAutofill="no"
+                      value={password}
+                      onChangeText={setPassword}
+                    />
+                    <TouchableOpacity
+                      style={styles.eyeIcon}
+                      onPress={() => setShowPassword(!showPassword)}
+                    >
+                      <Ionicons
+                        name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+                        size={20}
+                        color="#6b7280"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>Confirm Password</Text>
+                  <View style={styles.passwordInputContainer}>
+                    <TextInput
+                      style={styles.passwordInput}
+                      placeholder="Confirm your password"
+                      placeholderTextColor="#9ca3af"
+                      secureTextEntry={!showConfirmPassword}
+                      autoComplete="new-password"
+                      textContentType="newPassword"
+                      autoCapitalize="none"
+                      keyboardType="default"
+                      editable={true}
+                      importantForAutofill="no"
+                      value={confirmPassword}
+                      onChangeText={setConfirmPassword}
+                    />
+                    <TouchableOpacity
+                      style={styles.eyeIcon}
+                      onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                    >
+                      <Ionicons
+                        name={showConfirmPassword ? 'eye-outline' : 'eye-off-outline'}
+                        size={20}
+                        color="#6b7280"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                <Button
+                  title="Sign Up"
+                  onPress={handleSignUp}
+                  variant="primary"
+                  style={styles.signUpButton}
                 />
                 <TouchableOpacity
-                  style={styles.eyeIcon}
-                  onPress={() => setShowPassword(!showPassword)}
+                  style={styles.backWrapper}
+                  onPress={() => setStep(STEP_CODE)}
                 >
-                  <Ionicons
-                    name={showPassword ? 'eye-outline' : 'eye-off-outline'}
-                    size={20}
-                    color="#6b7280"
-                  />
+                  <Text style={styles.backText}>Back to verification</Text>
                 </TouchableOpacity>
-              </View>
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Confirm Password</Text>
-              <View style={styles.passwordInputContainer}>
-                <TextInput
-                  style={styles.passwordInput}
-                  placeholder="Confirm your password"
-                  placeholderTextColor="#9ca3af"
-                  secureTextEntry={!showConfirmPassword}
-                  autoComplete="new-password"
-                  textContentType="newPassword"
-                  autoCapitalize="none"
-                  keyboardType="default"
-                  editable={true}
-                  importantForAutofill="no"
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                />
-                <TouchableOpacity
-                  style={styles.eyeIcon}
-                  onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-                >
-                  <Ionicons
-                    name={showConfirmPassword ? 'eye-outline' : 'eye-off-outline'}
-                    size={20}
-                    color="#6b7280"
-                  />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            <Button
-              title="Sign Up"
-              onPress={handleSignUp}
-              variant="primary"
-              style={styles.signUpButton}
-            />
+              </>
+            )}
 
             <TouchableOpacity
               style={styles.loginWrapper}
@@ -264,7 +396,41 @@ const styles = StyleSheet.create({
     paddingVertical: 22,
     shadowColor: '#000',
     shadowOpacity: 0.08,
-
+  },
+  stepHint: {
+    fontSize: 13,
+    color: '#6b7280',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  codeInput: {
+    textAlign: 'center',
+    letterSpacing: 8,
+    fontSize: 18,
+  },
+  inputDisabled: {
+    backgroundColor: '#e5e7eb',
+    color: '#6b7280',
+  },
+  loader: {
+    marginTop: 8,
+  },
+  resendWrapper: {
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  resendText: {
+    fontSize: 13,
+    color: '#2563eb',
+    fontWeight: '600',
+  },
+  backWrapper: {
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  backText: {
+    fontSize: 13,
+    color: '#6b7280',
   },
   fieldGroup: {
     marginBottom: 16,

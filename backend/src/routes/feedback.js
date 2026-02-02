@@ -1,6 +1,6 @@
 const express = require('express');
 const { body } = require('express-validator');
-const { Feedback } = require('../models');
+const { createFeedback, getFeedbackByUserId } = require('../services/firestore/feedback');
 const { authenticate } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 
@@ -28,20 +28,16 @@ router.post(
   async (req, res) => {
     try {
       const { message } = req.body;
+      const userId = req.user.id; // Firebase UID (string)
 
-      const feedback = new Feedback({
-        userId: req.user.id,
-        message: message.trim(),
-      });
-
-      await feedback.save();
+      const feedback = await createFeedback(userId, { message });
 
       res.status(201).json({
         success: true,
         message: 'Thank you for your feedback! We appreciate your input.',
         data: {
           feedback: {
-            id: feedback._id.toString(),
+            id: feedback.id,
             message: feedback.message,
             status: feedback.status,
             created_at: feedback.createdAt,
@@ -65,15 +61,13 @@ router.post(
  */
 router.get('/my-feedback', authenticate, async (req, res) => {
   try {
-    const feedbacks = await Feedback.find({ userId: req.user.id })
-      .sort({ createdAt: -1 })
-      .select('message status createdAt updatedAt');
+    const feedbacks = await getFeedbackByUserId(req.user.id);
 
     res.json({
       success: true,
       data: {
         feedbacks: feedbacks.map(fb => ({
-          id: fb._id.toString(),
+          id: fb.id,
           message: fb.message,
           status: fb.status,
           created_at: fb.createdAt,

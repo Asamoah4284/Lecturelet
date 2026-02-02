@@ -2,6 +2,7 @@
   "expo": {
     "name": "LectureLet",
     "slug": "LectureLet",
+    "scheme": "lecturelet",
     "version": "1.0.4",
     "runtimeVersion": "1.0.4",
     "orientation": "portrait",
@@ -10,7 +11,7 @@
     "splash": {
       "image": "./assets/logo-1.png",
       "resizeMode": "contain",
-      "backgroundColor": "#6366f1"
+      "backgroundColor": "#ffffff"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -32,7 +33,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/logo-1.png",
-        "backgroundColor": "#6366f1"
+        "backgroundColor": "#023c69"
       },
       "package": "com.LectureLet.app",
       "googleServicesFile": "google-services.json",

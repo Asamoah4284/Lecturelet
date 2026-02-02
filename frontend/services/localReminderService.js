@@ -2,9 +2,10 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApiUrl } from '../config/api';
+import { isCustomSoundId, getSoundFileName } from '../config/notificationSounds';
+import { createNotificationChannel, getChannelIdForSound } from './notificationService';
 
-// Import sound files to ensure they're bundled with the app
-// These are required so Expo includes them in the build
+// Bundle sound files from assets/sounds (used by notifications)
 require('../assets/sounds/r1.wav');
 require('../assets/sounds/r2.wav');
 require('../assets/sounds/r3.wav');
@@ -218,19 +219,22 @@ const scheduleReminderNotification = async ({
       notificationSound = false; // Silent - no sound
     } else if (soundPreference === 'default') {
       notificationSound = true; // System default sound
-    } else if (soundPreference === 'r1' || soundPreference === 'r2' || soundPreference === 'r3') {
-      // For Expo notifications, use just the filename (without path)
-      // Files in assets/sounds/ are automatically bundled to res/raw/ on Android
-      // and to the app bundle on iOS during build
-      // The filename must match exactly (case-sensitive)
-      const soundFileName = `${soundPreference}.wav`;
-      console.log(`Using custom sound for notification: ${soundFileName}`);
-      notificationSound = soundFileName;
+    } else if (isCustomSoundId(soundPreference)) {
+      const soundFileName = getSoundFileName(soundPreference);
+      if (soundFileName) {
+        console.log(`Using custom sound from sounds folder: ${soundFileName}`);
+        notificationSound = soundFileName;
+      } else {
+        notificationSound = true;
+      }
     } else {
       // Fallback to default system sound for unknown preferences
       notificationSound = true;
     }
     
+    // Ensure Android channel exists so sound actually plays (channel controls sound on Android 8+)
+    await createNotificationChannel();
+
     const notificationContent = {
       title: 'Class Reminder',
       body: `Your next class, ${courseName}, starts in ${reminderMinutes} minutes.${indexRangeText}`,
@@ -241,14 +245,15 @@ const scheduleReminderNotification = async ({
         source: 'local',
         classDate: classDate.toISOString(),
       },
-      sound: notificationSound, // true = plays default system sound loudly
+      sound: notificationSound,
       priority: Notifications.AndroidNotificationPriority.HIGH,
     };
-    
-    const trigger = {
-      date: reminderDate,
-    };
-    
+
+    const channelId = getChannelIdForSound(soundPreference);
+    const trigger = Platform.OS === 'android' && channelId
+      ? { date: reminderDate, channelId }
+      : { date: reminderDate };
+
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: notificationContent,
       trigger,

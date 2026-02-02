@@ -17,8 +17,12 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApiUrl } from '../config/api';
 import Button from '../components/Button';
+import QuizCard from '../components/QuizCard';
+import { useOffline } from '../context/OfflineContext';
+import { offlineCache } from '../services/offlineCache';
 
 const StudentCoursesScreen = ({ navigation }) => {
+  const isOffline = useOffline();
   const [searchQuery, setSearchQuery] = useState('');
   const [enrolledCourses, setEnrolledCourses] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -59,13 +63,24 @@ const StudentCoursesScreen = ({ navigation }) => {
     try {
       const token = await AsyncStorage.getItem('@auth_token');
       if (!token) {
-        // Guest mode - show empty state but allow searching
         setEnrolledCourses([]);
         setQuizzes([]);
         setTutorials([]);
         setAssignments([]);
         setLoading(false);
         setError('');
+        return;
+      }
+
+      if (isOffline) {
+        const cached = await offlineCache.getStudentCourses();
+        if (cached && Array.isArray(cached)) {
+          setEnrolledCourses(cached);
+          setError('');
+          if (cached.length > 0) loadActivitiesForCourses(cached);
+        }
+        setLoading(false);
+        setRefreshing(false);
         return;
       }
 
@@ -82,7 +97,7 @@ const StudentCoursesScreen = ({ navigation }) => {
         const courses = data.data.courses || [];
         setEnrolledCourses(courses);
         setError('');
-        // Load activities after courses are loaded
+        await offlineCache.setStudentCourses(courses);
         if (courses.length > 0) {
           loadActivitiesForCourses(courses);
         }
@@ -91,9 +106,18 @@ const StudentCoursesScreen = ({ navigation }) => {
         setEnrolledCourses([]);
       }
     } catch (err) {
+      if (isOffline) {
+        const cached = await offlineCache.getStudentCourses();
+        if (cached && Array.isArray(cached)) {
+          setEnrolledCourses(cached);
+          setError('');
+          if (cached.length > 0) loadActivitiesForCourses(cached);
+        }
+      } else {
+        setError('An error occurred. Please try again.');
+        setEnrolledCourses([]);
+      }
       console.error('Error loading courses:', err);
-      setError('An error occurred. Please try again.');
-      setEnrolledCourses([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -519,41 +543,7 @@ const StudentCoursesScreen = ({ navigation }) => {
           /* Activities List */
           <View style={styles.activitiesList}>
             {selectedFilter === 'quizzes' && getFilteredQuizzes().length > 0 && getFilteredQuizzes().map((quiz) => (
-              <View key={quiz.id || quiz._id} style={styles.activityCard}>
-                <View style={styles.activityCardLeftBorder} />
-                <View style={styles.activityCardContent}>
-                  <View style={styles.activityCardHeader}>
-                    <View style={styles.activityTitleSection}>
-                      <Text style={styles.activityNameText}>{quiz.quiz_name || quiz.quizName}</Text>
-                      <Text style={styles.activityCourseText}>
-                        {quiz.course_code || quiz.courseCode} - {quiz.course_name || quiz.courseName}
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={styles.activityDetails}>
-                    <View style={styles.detailRow}>
-                      <Ionicons name="calendar-outline" size={16} color="#6b7280" />
-                      <Text style={styles.detailText}>{quiz.date}</Text>
-                    </View>
-                    <View style={styles.detailRow}>
-                      <Ionicons name="time-outline" size={16} color="#6b7280" />
-                      <Text style={styles.detailText}>{quiz.time}</Text>
-                    </View>
-                    {quiz.venue && (
-                      <View style={styles.detailRow}>
-                        <Ionicons name="location-outline" size={16} color="#6b7280" />
-                        <Text style={styles.detailText}>{quiz.venue}</Text>
-                      </View>
-                    )}
-                    {quiz.topic && (
-                      <View style={styles.detailRow}>
-                        <Ionicons name="book-outline" size={16} color="#6b7280" />
-                        <Text style={styles.detailText}>{quiz.topic}</Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-              </View>
+              <QuizCard key={quiz.id || quiz._id} quiz={quiz} />
             ))}
             {selectedFilter === 'tutorials' && getFilteredTutorials().length > 0 && getFilteredTutorials().map((tutorial) => (
               <View key={tutorial.id || tutorial._id} style={styles.activityCard}>

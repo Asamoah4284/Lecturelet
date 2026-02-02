@@ -352,7 +352,11 @@ router.get(
       if (!isCreatorOfCourse && !enrolled) {
         return res.status(403).json({ success: false, message: 'Access denied. Enroll or be the course creator to view materials.' });
       }
-      const materials = await materialsService.listByCourse(courseId);
+      const typeFilter = req.query.type; // 'materials' | 'questions' | 'learning'
+      let materials = await materialsService.listByCourse(courseId);
+      if (typeFilter === 'questions' || typeFilter === 'learning' || typeFilter === 'materials') {
+        materials = materials.filter((m) => (m.type || 'materials') === typeFilter);
+      }
       const bucket = firebaseStorage.bucket();
       const materialsWithUrls = await Promise.all(
         materials.map(async (m) => {
@@ -411,6 +415,7 @@ router.post(
       if (!req.file || !req.file.buffer) {
         return res.status(400).json({ success: false, message: 'No file uploaded. Send as multipart/form-data with field "file".' });
       }
+      const type = req.body.type === 'questions' || req.body.type === 'learning' ? req.body.type : 'materials';
       const originalName = req.file.originalname || 'document';
       const ext = originalName.includes('.') ? originalName.slice(originalName.lastIndexOf('.')) : '';
       const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100);
@@ -423,6 +428,7 @@ router.post(
       });
       const material = await materialsService.create({
         courseId,
+        type,
         name: originalName,
         storagePath,
         downloadUrl: null,

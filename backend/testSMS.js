@@ -1,22 +1,38 @@
-require('dotenv').config();
+/**
+ * Manual SMS test – sends one SMS to the given number (or default).
+ * Usage: node testSMS.js [phoneNumber]
+ * Example: node testSMS.js
+ *          node testSMS.js 0248962044
+ *          node testSMS.js 0542343069
+ *
+ * Default number: 0248962044
+ * Ensure .env has MOOLRE_API_KEY set.
+ */
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const { sendSMS } = require('./src/utils/smsService');
 
-async function test() {
-    const number = process.argv[2] || '0542343069';
-    console.log(`🚀 Starting manual SMS test...`);
-    console.log('--- DEBUG INFO ---');
-    console.log('MOOLRE_API_KEY Type:', typeof process.env.MOOLRE_API_KEY);
-    console.log('MOOLRE_API_KEY Value:', '|' + process.env.MOOLRE_API_KEY + '|');
-    console.log('MOOLRE_API_KEY Length:', process.env.MOOLRE_API_KEY ? process.env.MOOLRE_API_KEY.length : 0);
-    console.log('--- END DEBUG ---');
+const DEFAULT_NUMBER = '0248962044';
+const TEST_MESSAGE = 'LectureLet SMS test – If you received this, the SMS system is working.';
 
-    const result = await sendSMS(number, 'Manual Test: LectureLet SMS system is now LIVE!');
+async function run() {
+  const number = process.argv[2] || DEFAULT_NUMBER;
+  console.log('--- SMS Test ---');
+  console.log('Recipient:', number);
+  console.log('Message:', TEST_MESSAGE);
+  console.log('MOOLRE_API_KEY set:', !!process.env.MOOLRE_API_KEY);
+  console.log('----------------\n');
 
-    if (result.success) {
-        console.log('✅ SUCCESS');
-    } else {
-        console.log('❌ FAILED:', result.message);
-    }
+  const result = await sendSMS(number, TEST_MESSAGE);
+
+  if (result.success) {
+    console.log('✅ SMS sent successfully');
+  } else {
+    console.log('❌ SMS failed:', result.message);
+  }
+  return result;
 }
 
-test();
+run().catch((err) => {
+  console.error('Test error:', err);
+  process.exit(1);
+});

@@ -1,8 +1,11 @@
 import React, { useEffect, useRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { AppState } from 'react-native';
+import { AppState, View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CourseProvider } from './context/CourseContext';
+import { OfflineProvider } from './context/OfflineContext';
+import OfflineBadge from './components/OfflineBadge';
 import AppNavigator from './navigation/AppNavigator';
 import { 
   initializeNotifications, 
@@ -102,10 +105,17 @@ export default function App() {
   }, []);
 
   return (
-    <CourseProvider>
-      <AppNavigator />
-      <StatusBar style="auto" />
-    </CourseProvider>
+    <SafeAreaProvider>
+      <OfflineProvider>
+        <View style={{ flex: 1 }}>
+          <OfflineBadge />
+          <CourseProvider>
+            <AppNavigator />
+            <StatusBar style="auto" />
+          </CourseProvider>
+        </View>
+      </OfflineProvider>
+    </SafeAreaProvider>
   );
 }
 

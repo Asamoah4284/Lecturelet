@@ -23,9 +23,12 @@ import { initializeNotifications, removePushToken } from '../services/notificati
 import { syncAndScheduleReminders, cancelAllReminders } from '../services/localReminderService';
 import { getTrialStatus } from '../utils/trialHelpers';
 import * as Notifications from 'expo-notifications';
+import {
+  NOTIFICATION_SOUND_IDS,
+  getSoundFileName,
+} from '../config/notificationSounds';
 
-// Import sound files to ensure they're bundled with the app
-// These are required so Expo includes them in the build
+// Bundle sound files from assets/sounds (used by notification channels + preview)
 require('../assets/sounds/r1.wav');
 require('../assets/sounds/r2.wav');
 require('../assets/sounds/r3.wav');
@@ -693,14 +696,14 @@ const SettingsContent = ({ navigation }) => {
         notificationSoundValue = false; // Silent
       } else if (soundPreference === 'default') {
         notificationSoundValue = true; // System default sound
-      } else if (soundPreference === 'r1' || soundPreference === 'r2' || soundPreference === 'r3') {
-        // For Expo notifications, use just the filename (without path)
-        // Files in assets/sounds/ are automatically bundled to res/raw/ on Android
-        // and to the app bundle on iOS during build
-        // The filename must match exactly (case-sensitive)
-        const soundFileName = `${soundPreference}.wav`;
-        console.log(`Using custom sound: ${soundFileName}`);
-        notificationSoundValue = soundFileName;
+      } else if (NOTIFICATION_SOUND_IDS.includes(soundPreference)) {
+        const soundFileName = getSoundFileName(soundPreference);
+        if (soundFileName) {
+          console.log(`Using custom sound from sounds folder: ${soundFileName}`);
+          notificationSoundValue = soundFileName;
+        } else {
+          notificationSoundValue = true;
+        }
       } else {
         // Fallback to default
         notificationSoundValue = true;
@@ -717,13 +720,14 @@ const SettingsContent = ({ navigation }) => {
         return;
       }
 
-      // Ensure Android channel is created with sound enabled
-      if (Platform.OS === 'android') {
-        const { createNotificationChannel } = require('../services/notificationService');
-        await createNotificationChannel(true); // Force recreate to ensure sound is enabled
-      }
+      const { createNotificationChannel, getChannelIdForSound } = require('../services/notificationService');
+      await createNotificationChannel(true);
 
-      // Trigger a test notification with the selected sound
+      const channelId = getChannelIdForSound(soundPreference);
+      const trigger = Platform.OS === 'android' && channelId
+        ? { seconds: 2, channelId }
+        : { seconds: 2 };
+
       await Notifications.scheduleNotificationAsync({
         content: {
           title: 'Sound Preview 🔊',
@@ -733,7 +737,7 @@ const SettingsContent = ({ navigation }) => {
           sound: notificationSoundValue,
           priority: Notifications.AndroidNotificationPriority.HIGH,
         },
-        trigger: null, // Show immediately
+        trigger,
       });
     } catch (error) {
       console.error('Error previewing notification sound:', error);
@@ -975,6 +979,27 @@ const SettingsContent = ({ navigation }) => {
           )}
         </View>
 
+        {/* Save Settings Button — after notification sound */}
+        {isAuthenticated ? (
+          <Button
+            title={saving ? "Saving..." : "Save Settings"}
+            onPress={handleSaveSettings}
+            variant="primary"
+            style={styles.saveButton}
+            disabled={saving}
+          />
+        ) : (
+          <View style={styles.guestPromptContainer}>
+            <Text style={styles.guestPromptText}>Sign up to save settings and access all features</Text>
+            <Button
+              title="Sign Up"
+              onPress={() => navigation.navigate('Signup')}
+              variant="primary"
+              style={styles.signUpButton}
+            />
+          </View>
+        )}
+
         {/* Accessection - Only show for authenticated students (hide for guests + course reps) */}
         {isAuthenticated && userRole === 'student' && userRole !== 'course_rep' && userRole !== '' && (
           <View style={styles.section}>
@@ -1076,27 +1101,6 @@ const SettingsContent = ({ navigation }) => {
             <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
           </TouchableOpacity>
         </View>
-
-        {/* Save Settings Button */}
-        {isAuthenticated ? (
-          <Button
-            title={saving ? "Saving..." : "Save Settings"}
-            onPress={handleSaveSettings}
-            variant="primary"
-            style={styles.saveButton}
-            disabled={saving}
-          />
-        ) : (
-          <View style={styles.guestPromptContainer}>
-            <Text style={styles.guestPromptText}>Sign up to save settings and access all features</Text>
-            <Button
-              title="Sign Up"
-              onPress={() => navigation.navigate('Signup')}
-              variant="primary"
-              style={styles.signUpButton}
-            />
-          </View>
-        )}
 
         {/* Logout Button + Version */}
         {isAuthenticated && (

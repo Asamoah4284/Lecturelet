@@ -16,9 +16,13 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Button from '../components/Button';
+import QuizCard from '../components/QuizCard';
 import { getApiUrl } from '../config/api';
+import { useOffline } from '../context/OfflineContext';
+import { offlineCache } from '../services/offlineCache';
 
 const CoursesScreen = ({ navigation }) => {
+  const isOffline = useOffline();
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -52,8 +56,16 @@ const CoursesScreen = ({ navigation }) => {
         return;
       }
 
-      // Let backend handle authorization - don't block based on cached role
-      // This allows users who just switched roles to access features immediately
+      if (isOffline) {
+        const cached = await offlineCache.getRepCourses();
+        if (cached && Array.isArray(cached)) {
+          setCourses(cached);
+        }
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
       const response = await fetch(getApiUrl('courses/my-courses'), {
         method: 'GET',
         headers: {
@@ -64,17 +76,21 @@ const CoursesScreen = ({ navigation }) => {
       const data = await response.json();
 
       if (response.ok && data.success) {
-        setCourses(data.data.courses || []);
+        const list = data.data.courses || [];
+        setCourses(list);
+        await offlineCache.setRepCourses(list);
       } else {
-        // Handle permission errors gracefully
         if (response.status === 403) {
-          // User doesn't have course_rep role, show empty state
           setCourses([]);
         } else {
           console.error('Error loading courses:', data.message);
         }
       }
     } catch (error) {
+      if (isOffline) {
+        const cached = await offlineCache.getRepCourses();
+        if (cached && Array.isArray(cached)) setCourses(cached);
+      }
       console.error('Error loading courses:', error);
     } finally {
       setLoading(false);
@@ -681,13 +697,15 @@ const CoursesScreen = ({ navigation }) => {
         {/* Section Header */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>My Lectures</Text>
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={() => navigation.navigate('AddCourse')}
-          >
-            <Ionicons name="add" size={24} color="#2563eb" />
-            <Text style={styles.addButtonText}>Add</Text>
-          </TouchableOpacity>
+          {selectedFilter === 'courses' && (
+            <TouchableOpacity
+              style={styles.addButton}
+              onPress={() => navigation.navigate('AddCourse')}
+            >
+              <Ionicons name="add" size={24} color="#2563eb" />
+              <Text style={styles.addButtonText}>Add</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Filter Tabs */}
@@ -801,95 +819,41 @@ const CoursesScreen = ({ navigation }) => {
           /* Activities List */
           <View style={styles.activitiesList}>
             {selectedFilter === 'quizzes' && getFilteredQuizzes().length > 0 && getFilteredQuizzes().map((quiz) => (
-              <View key={quiz.id || quiz._id} style={styles.activityCard}>
-                <View style={styles.activityCardLeftBorder} />
-                <View style={styles.activityCardContent}>
-                  <View style={styles.activityCardHeader}>
-                    <View style={styles.activityTitleSection}>
-                      <Text style={styles.activityNameText}>{quiz.quiz_name || quiz.quizName}</Text>
-                      <Text style={styles.activityCourseText}>
-                        {quiz.course_code || quiz.courseCode} - {quiz.course_name || quiz.courseName}
-                      </Text>
-                    </View>
-                    <TouchableOpacity
-                      style={styles.activityEditButton}
-                      onPress={() => {
-                        try {
-                          console.log('Edit quiz pressed, quiz data:', JSON.stringify(quiz, null, 2));
-                          console.log('Available courses:', courses.length);
-                          
-                          // Try to find course from courses array
-                          let course = courses.find(c => {
-                            const courseId = c.id || c._id;
-                            const quizCourseId = quiz.course_id?._id || quiz.course_id || quiz.courseId;
-                            const match = courseId && quizCourseId && courseId.toString() === quizCourseId.toString();
-                            if (match) {
-                              console.log('Found course match:', courseId);
-                            }
-                            return match;
-                          });
-
-                          // If course not found, try to construct it from quiz data
-                          if (!course) {
-                            console.log('Course not found in array, constructing from quiz data');
-                            const quizCourseId = quiz.course_id?._id || quiz.course_id || quiz.courseId;
-                            if (quizCourseId) {
-                              course = {
-                                id: quizCourseId,
-                                _id: quizCourseId,
-                                course_code: quiz.course_code || quiz.courseCode,
-                                courseCode: quiz.course_code || quiz.courseCode,
-                                course_name: quiz.course_name || quiz.courseName,
-                                courseName: quiz.course_name || quiz.courseName,
-                              };
-                              console.log('Constructed course:', course);
-                            }
-                          }
-
-                          if (course) {
-                            console.log('Navigating to CreateQuiz with:', { 
-                              courseId: course.id || course._id,
-                              quizId: quiz.id || quiz._id,
-                              editMode: true 
-                            });
-                            navigation.navigate('CreateQuiz', { course, quiz, editMode: true });
-                          } else {
-                            console.error('Could not find or construct course');
-                            Alert.alert('Error', 'Could not find course information. Please try again.');
-                          }
-                        } catch (error) {
-                          console.error('Error navigating to edit quiz:', error);
-                          Alert.alert('Error', 'Failed to open quiz editor. Please try again.');
-                        }
-                      }}
-                    >
-                      <Ionicons name="create-outline" size={18} color="#2563eb" />
-                    </TouchableOpacity>
-                  </View>
-                  <View style={styles.activityDetails}>
-                    <View style={styles.detailRow}>
-                      <Ionicons name="calendar-outline" size={16} color="#6b7280" />
-                      <Text style={styles.detailText}>{quiz.date}</Text>
-                    </View>
-                    <View style={styles.detailRow}>
-                      <Ionicons name="time-outline" size={16} color="#6b7280" />
-                      <Text style={styles.detailText}>{quiz.time}</Text>
-                    </View>
-                    {quiz.venue && (
-                      <View style={styles.detailRow}>
-                        <Ionicons name="location-outline" size={16} color="#6b7280" />
-                        <Text style={styles.detailText}>{quiz.venue}</Text>
-                      </View>
-                    )}
-                    {quiz.topic && (
-                      <View style={styles.detailRow}>
-                        <Ionicons name="book-outline" size={16} color="#6b7280" />
-                        <Text style={styles.detailText}>{quiz.topic}</Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-              </View>
+              <QuizCard
+                key={quiz.id || quiz._id}
+                quiz={quiz}
+                showEdit
+                onEdit={() => {
+                  try {
+                    let course = courses.find(c => {
+                      const courseId = c.id || c._id;
+                      const quizCourseId = quiz.course_id?._id || quiz.course_id || quiz.courseId;
+                      return courseId && quizCourseId && courseId.toString() === quizCourseId.toString();
+                    });
+                    if (!course) {
+                      const quizCourseId = quiz.course_id?._id || quiz.course_id || quiz.courseId;
+                      if (quizCourseId) {
+                        course = {
+                          id: quizCourseId,
+                          _id: quizCourseId,
+                          course_code: quiz.course_code || quiz.courseCode,
+                          courseCode: quiz.course_code || quiz.courseCode,
+                          course_name: quiz.course_name || quiz.courseName,
+                          courseName: quiz.course_name || quiz.courseName,
+                        };
+                      }
+                    }
+                    if (course) {
+                      navigation.navigate('CreateQuiz', { course, quiz, editMode: true });
+                    } else {
+                      Alert.alert('Error', 'Could not find course information. Please try again.');
+                    }
+                  } catch (error) {
+                    console.error('Error navigating to edit quiz:', error);
+                    Alert.alert('Error', 'Failed to open quiz editor. Please try again.');
+                  }
+                }}
+              />
             ))}
             {selectedFilter === 'tutorials' && getFilteredTutorials().length > 0 && getFilteredTutorials().map((tutorial) => (
               <View key={tutorial.id || tutorial._id} style={styles.activityCard}>

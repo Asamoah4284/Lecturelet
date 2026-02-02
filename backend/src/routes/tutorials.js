@@ -1,10 +1,14 @@
 const express = require('express');
 const { body } = require('express-validator');
-const { Tutorial, Course, Enrollment, Notification, User } = require('../models');
+const { Tutorial, Course } = require('../models');
+const { isEnrolled } = require('../services/firestore/enrollments');
+const { getCourseById: getFirestoreCourseById, isCreator: isFirestoreCreator } = require('../services/firestore/courses');
+const { createTutorial: createFirestoreTutorial, getTutorialsByCourseId: getFirestoreTutorialsByCourseId, getTutorialsByCreator: getFirestoreTutorialsByCreator } = require('../services/firestore/tutorials');
 const { authenticate, authorize } = require('../middleware/auth');
+
+const isValidMongoObjectId = (id) => typeof id === 'string' && /^[a-fA-F0-9]{24}$/.test(id);
 const validate = require('../middleware/validate');
-const { sendBulkPushNotifications } = require('../utils/pushNotificationService');
-const { sendBulkSMS } = require('../utils/smsService');
+const { notifyEnrolledUsers } = require('../utils/notifyEnrolledUsers');
 
 const router = express.Router();
 
@@ -61,230 +65,89 @@ router.post(
         courseName,
       } = req.body;
 
-      // Verify course exists and user is creator
-      const course = await Course.findById(courseId);
-      if (!course) {
-        return res.status(404).json({
-          success: false,
-          message: 'Course not found',
-        });
+      let course;
+      let isCreator;
+      if (isValidMongoObjectId(courseId)) {
+        course = await Course.findById(courseId);
+        if (!course) return res.status(404).json({ success: false, message: 'Course not found' });
+        isCreator = await Course.isCreator(courseId, req.user.id);
+      } else {
+        course = await getFirestoreCourseById(courseId);
+        if (!course) return res.status(404).json({ success: false, message: 'Course not found' });
+        isCreator = await isFirestoreCreator(courseId, req.user.id);
       }
-
-      if (!(await Course.isCreator(courseId, req.user.id))) {
+      if (!isCreator) {
         return res.status(403).json({
           success: false,
           message: 'You can only create tutorials for your own courses',
         });
       }
 
-      // Create the tutorial
-      const tutorial = await Tutorial.create({
-        tutorialName: tutorialName.trim(),
+      if (isValidMongoObjectId(courseId)) {
+        const tutorial = await Tutorial.create({
+          tutorialName: tutorialName.trim(),
+          date,
+          time,
+          venue: venue.trim(),
+          topic: topic ? topic.trim() : null,
+          courseId,
+          courseCode: courseCode.trim(),
+          courseName: courseName.trim(),
+          createdBy: req.user.id,
+        });
+        const baseMessage = `A new tutorial "${tutorialName}" has been scheduled for ${courseName} on ${date} at ${time}`;
+        const notifyResult = await notifyEnrolledUsers(courseId, {
+          title: 'New Tutorial Created',
+          message: baseMessage,
+          type: 'tutorial_created',
+          data: {
+            tutorialId: tutorial._id.toString(),
+            courseId: courseId.toString(),
+            courseName: courseName,
+          },
+          courseName,
+        });
+        return res.status(201).json({
+          success: true,
+          message: 'Tutorial created successfully',
+          data: {
+            tutorial: tutorial.toJSON(),
+            notificationsSent: notifyResult.inAppCount,
+            pushNotificationsSent: notifyResult.pushCount,
+          },
+        });
+      }
+
+      const tutorial = await createFirestoreTutorial({
+        courseId,
+        tutorialName,
         date,
         time,
-        venue: venue.trim(),
-        topic: topic ? topic.trim() : null,
-        courseId,
-        courseCode: courseCode.trim(),
-        courseName: courseName.trim(),
+        venue,
+        topic,
+        courseCode,
+        courseName,
         createdBy: req.user.id,
       });
-
-      // Helper function to calculate next class time
-      const calculateNextClassTime = (courseData, fromDate = new Date()) => {
-        try {
-          const days = courseData.days || [];
-          if (days.length === 0) return null;
-          
-          const dayTimes = courseData.dayTimes || {};
-          const hasDayTimes = Object.keys(dayTimes).length > 0;
-          
-          const getDayName = (date) => {
-            const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-            return days[date.getDay()];
-          };
-          
-          const parseTime = (timeStr, date) => {
-            if (!timeStr) return null;
-            try {
-              const time12Hour = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
-              if (time12Hour) {
-                let hours = parseInt(time12Hour[1], 10);
-                const minutes = parseInt(time12Hour[2], 10);
-                const ampm = time12Hour[3].toUpperCase();
-                if (ampm === 'PM' && hours !== 12) hours += 12;
-                if (ampm === 'AM' && hours === 12) hours = 0;
-                const result = new Date(date);
-                result.setHours(hours, minutes, 0, 0);
-                return result;
-              }
-              const time24Hour = timeStr.match(/(\d{1,2}):(\d{2})/);
-              if (time24Hour) {
-                const hours = parseInt(time24Hour[1], 10);
-                const minutes = parseInt(time24Hour[2], 10);
-                const result = new Date(date);
-                result.setHours(hours, minutes, 0, 0);
-                return result;
-              }
-              return null;
-            } catch (error) {
-              return null;
-            }
-          };
-          
-          for (let i = 0; i < 7; i++) {
-            const checkDate = new Date(fromDate);
-            checkDate.setDate(checkDate.getDate() + i);
-            const dayName = getDayName(checkDate);
-            
-            if (!days.includes(dayName)) continue;
-            
-            let startTime = null;
-            
-            if (hasDayTimes && dayTimes[dayName]) {
-              startTime = parseTime(dayTimes[dayName].startTime, checkDate);
-            } else {
-              startTime = parseTime(courseData.startTime, checkDate);
-            }
-            
-            if (startTime) {
-              const timeDiff = startTime.getTime() - fromDate.getTime();
-              const thirtyMinutes = 30 * 60 * 1000;
-              if (timeDiff >= -thirtyMinutes) {
-                return startTime;
-              }
-            }
-          }
-          
-          return null;
-        } catch (error) {
-          return null;
-        }
-      };
-
-      // Check if tutorial creation is within 30 minutes of next class time
-      const now = new Date();
-      const nextClassTime = calculateNextClassTime(course, now);
-      const thirtyMinutes = 30 * 60 * 1000;
-      const isWithinThirtyMinutes = nextClassTime && 
-                                    (nextClassTime.getTime() - now.getTime() <= thirtyMinutes && 
-                                     nextClassTime.getTime() - now.getTime() > 0);
-      
-      const shouldSendSMS = isWithinThirtyMinutes;
-
-      // Get all enrolled students for the course
-      const enrollments = await Enrollment.find({ courseId })
-        .populate('userId', 'pushToken notificationsEnabled fullName phoneNumber');
-
-      // Prepare notifications for all enrolled students
-      const notifications = [];
-      const pushNotifications = [];
-      const smsRecipients = [];
-
       const baseMessage = `A new tutorial "${tutorialName}" has been scheduled for ${courseName} on ${date} at ${time}`;
-
-      for (const enrollment of enrollments) {
-        const student = enrollment.userId;
-        
-        // Skip if user no longer exists
-        if (!student || !student._id) {
-          continue;
-        }
-
-        // Fetch full user to check access status
-        const fullUser = await User.findById(student._id);
-        if (!fullUser) {
-          continue;
-        }
-
-        // Check if user has active access (payment OR active trial)
-        const hasActiveAccess = fullUser.hasActiveAccess();
-        
-        // Get student's name for personalized notifications
-        const studentName = student.fullName || 'Student';
-        const personalizedMessage = `Hi ${studentName}, ${baseMessage}`;
-        
-        // Create in-app notification for all students (even if trial expired)
-        notifications.push({
-          userId: student._id,
-          title: 'New Tutorial Created',
-          message: personalizedMessage,
-          type: 'announcement',
-          courseId: courseId,
-        });
-
-        // Prepare push notification only if user has active access
-        if (hasActiveAccess && student.pushToken && student.notificationsEnabled) {
-          pushNotifications.push({
-            pushToken: student.pushToken,
-            title: 'New Tutorial Created',
-            body: personalizedMessage,
-            data: {
-              type: 'tutorial_created',
-              tutorialId: tutorial._id.toString(),
-              courseId: courseId.toString(),
-              courseName: courseName,
-            },
-          });
-        }
-
-        // Prepare SMS only if user has active access (only if within 30 minutes of class)
-        if (hasActiveAccess && shouldSendSMS && student.phoneNumber) {
-          const smsMessage = `Hi ${studentName}, URGENT: New tutorial "${tutorialName}" for ${courseName} on ${date} at ${time}.`;
-          // Truncate if too long
-          const finalSmsMessage = smsMessage.length > 160 ? smsMessage.substring(0, 157) + '...' : smsMessage;
-          smsRecipients.push({
-            phoneNumber: student.phoneNumber,
-            message: finalSmsMessage,
-            userId: student._id,
-            type: 'tutorial',
-            courseId: courseId
-          });
-        }
-      }
-
-      // Create in-app notifications in database
-      if (notifications.length > 0) {
-        await Notification.insertMany(notifications);
-      }
-
-      // Send push notifications
-      if (pushNotifications.length > 0) {
-        try {
-          const pushResult = await sendBulkPushNotifications(pushNotifications);
-          console.log(`Push notifications sent: ${pushResult.sent || 0} successful, ${pushResult.failed || 0} failed`);
-        } catch (pushError) {
-          console.error('Error sending push notifications:', pushError);
-          // Don't fail the request if push notifications fail
-        }
-      }
-
-      // Send SMS notifications (only if within 30 minutes of class)
-      let smsResult = { sent: 0, failed: 0, limitExceeded: 0 };
-      if (smsRecipients.length > 0) {
-        try {
-          console.log(`Sending ${smsRecipients.length} SMS notifications (within 30 minutes of class)`);
-          smsResult = await sendBulkSMS(smsRecipients);
-          console.log(`SMS notifications sent: ${smsResult.sent || 0} successful, ${smsResult.failed || 0} failed, ${smsResult.limitExceeded || 0} limit exceeded`);
-          if (smsResult.errors && smsResult.errors.length > 0) {
-            console.error('SMS errors:', smsResult.errors);
-          }
-        } catch (smsError) {
-          console.error('Error sending SMS notifications:', smsError);
-          // Don't fail the request if SMS fails
-        }
-      } else if (shouldSendSMS) {
-        console.log('No SMS recipients found (students may not have phone numbers)');
-      }
-
-      res.status(201).json({
+      const notifyResult = await notifyEnrolledUsers(courseId, {
+        title: 'New Tutorial Created',
+        message: baseMessage,
+        type: 'tutorial_created',
+        data: {
+          tutorialId: tutorial.id,
+          courseId,
+          courseName: courseName,
+        },
+        courseName,
+      });
+      return res.status(201).json({
         success: true,
         message: 'Tutorial created successfully',
         data: {
-          tutorial: tutorial.toJSON(),
-          notificationsSent: notifications.length,
-          pushNotificationsSent: pushNotifications.length,
-          smsSent: smsResult.sent || 0,
+          tutorial,
+          notificationsSent: notifyResult.inAppCount,
+          pushNotificationsSent: notifyResult.pushCount,
         },
       });
     } catch (error) {
@@ -309,20 +172,34 @@ router.get(
     try {
       const { courseId } = req.params;
 
-      // Verify course exists
-      const course = await Course.findById(courseId);
-      if (!course) {
-        return res.status(404).json({
-          success: false,
-          message: 'Course not found',
+      // Firestore course IDs are not 24-char hex; never pass them to Mongoose
+      if (!isValidMongoObjectId(courseId)) {
+        const course = await getFirestoreCourseById(courseId);
+        if (!course) {
+          return res.status(404).json({ success: false, message: 'Course not found' });
+        }
+        const enrolled = await isEnrolled(req.user.id, courseId);
+        const creator = await isFirestoreCreator(courseId, req.user.id);
+        if (!enrolled && !creator) {
+          return res.status(403).json({
+            success: false,
+            message: 'You can only view tutorials for courses you are enrolled in or created',
+          });
+        }
+        const tutorials = await getFirestoreTutorialsByCourseId(courseId);
+        return res.json({
+          success: true,
+          data: { tutorials, count: tutorials.length },
         });
       }
 
-      // Check if user is enrolled or is the creator
-      const isEnrolled = await Enrollment.isEnrolled(req.user.id, courseId);
-      const isCreator = course.createdBy.toString() === req.user.id;
-
-      if (!isEnrolled && !isCreator) {
+      const course = await Course.findById(courseId);
+      if (!course) {
+        return res.status(404).json({ success: false, message: 'Course not found' });
+      }
+      const enrolled = await isEnrolled(req.user.id, courseId);
+      const creator = course.createdBy.toString() === req.user.id;
+      if (!enrolled && !creator) {
         return res.status(403).json({
           success: false,
           message: 'You can only view tutorials for courses you are enrolled in or created',
@@ -334,8 +211,8 @@ router.get(
       res.json({
         success: true,
         data: {
-          tutorials: tutorials.map(tutorial => tutorial.toJSON()),
-          count: tutorials.length,
+          tutorials: Array.isArray(tutorials) ? tutorials.map(t => (t && t.toJSON ? t.toJSON() : t)) : [],
+          count: Array.isArray(tutorials) ? tutorials.length : 0,
         },
       });
     } catch (error) {
@@ -359,12 +236,24 @@ router.get(
   authorize('course_rep'),
   async (req, res) => {
     try {
-      const tutorials = await Tutorial.findByCreator(req.user.id);
-
+      const userId = req.user.id;
+      const mongoList = [];
+      if (isValidMongoObjectId(userId)) {
+        const mongoTutorials = await Tutorial.findByCreator(userId);
+        mongoList.push(...(Array.isArray(mongoTutorials) ? mongoTutorials : []).map((t) =>
+          t && typeof t.toJSON === 'function' ? t.toJSON() : t
+        ));
+      }
+      const firestoreList = await getFirestoreTutorialsByCreator(userId);
+      const tutorials = [...mongoList, ...(Array.isArray(firestoreList) ? firestoreList : [])].sort((a, b) => {
+        const ta = new Date(a.created_at || 0).getTime();
+        const tb = new Date(b.created_at || 0).getTime();
+        return tb - ta;
+      });
       res.json({
         success: true,
         data: {
-          tutorials: tutorials.map(tutorial => tutorial.toJSON()),
+          tutorials,
           count: tutorials.length,
         },
       });
@@ -445,16 +334,7 @@ router.put(
       // Update the tutorial
       const tutorial = await Tutorial.findByIdAndUpdate(tutorialId, updateData, { new: true });
 
-      // Get all enrolled students for the course
-      const enrollments = await Enrollment.find({ courseId: tutorial.courseId })
-        .populate('userId', 'pushToken notificationsEnabled fullName');
-
-      // Build notification messages
-      let detailedMessage = `Tutorial "${tutorial.tutorialName}" for ${tutorial.courseName} has been updated`;
-      if (changes.length > 0) {
-        detailedMessage += `:\n${changes.join('\n')}`;
-      }
-
+      // Build notification message
       let pushMessage = `Tutorial "${tutorial.tutorialName}" has been updated`;
       if (changes.length > 0) {
         const changeSummary = changes.map(change => {
@@ -467,61 +347,26 @@ router.put(
         pushMessage += `. ${changeSummary.join(', ')}`;
       }
 
-      // Prepare notifications for all enrolled students
-      const notifications = [];
-      const pushNotifications = [];
-
-      for (const enrollment of enrollments) {
-        const student = enrollment.userId;
-
-        // Create in-app notification for all students
-        notifications.push({
-          userId: student._id,
-          title: 'Tutorial Updated',
-          message: detailedMessage,
-          type: 'announcement',
-          courseId: tutorial.courseId,
-        });
-
-        // Prepare push notification for students with push tokens and notifications enabled
-        if (student.pushToken && student.notificationsEnabled) {
-          pushNotifications.push({
-            pushToken: student.pushToken,
-            title: 'Tutorial Updated',
-            body: pushMessage,
-            data: {
-              type: 'tutorial_updated',
-              tutorialId: tutorial._id.toString(),
-              courseId: tutorial.courseId.toString(),
-              courseName: tutorial.courseName,
-            },
-          });
-        }
-      }
-
-      // Create in-app notifications in database
-      if (notifications.length > 0) {
-        await Notification.insertMany(notifications);
-      }
-
-      // Send push notifications
-      if (pushNotifications.length > 0) {
-        try {
-          const pushResult = await sendBulkPushNotifications(pushNotifications);
-          console.log(`Push notifications sent: ${pushResult.sent || 0} successful, ${pushResult.failed || 0} failed`);
-        } catch (pushError) {
-          console.error('Error sending push notifications:', pushError);
-          // Don't fail the request if push notifications fail
-        }
-      }
+      // Notify enrolled students immediately (in-app + push)
+      const notifyResult = await notifyEnrolledUsers(tutorial.courseId.toString(), {
+        title: 'Tutorial Updated',
+        message: pushMessage,
+        type: 'tutorial_updated',
+        data: {
+          tutorialId: tutorial._id.toString(),
+          courseId: tutorial.courseId.toString(),
+          courseName: tutorial.courseName,
+        },
+        courseName: tutorial.courseName,
+      });
 
       res.json({
         success: true,
         message: 'Tutorial updated successfully',
         data: {
           tutorial: tutorial.toJSON(),
-          notificationsSent: notifications.length,
-          pushNotificationsSent: pushNotifications.length,
+          notificationsSent: notifyResult.inAppCount,
+          pushNotificationsSent: notifyResult.pushCount,
         },
       });
     } catch (error) {

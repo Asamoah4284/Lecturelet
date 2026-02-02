@@ -29,6 +29,7 @@ const listByCourse = async (courseId) => {
     return {
       id: doc.id,
       courseId: data.courseId,
+      type: data.type || 'materials',
       name: data.name,
       storagePath: data.storagePath,
       downloadUrl: data.downloadUrl,
@@ -58,13 +59,15 @@ const getById = async (materialId) => {
 
 /**
  * Create material metadata after file is uploaded to Storage
- * @param {Object} params - courseId, name, storagePath, downloadUrl, mimeType, size, uploadedBy
+ * @param {Object} params - courseId, type, name, storagePath, downloadUrl, mimeType, size, uploadedBy
  * @returns {Promise<Object>} Created material document
  */
-const create = async ({ courseId, name, storagePath, downloadUrl, mimeType, size, uploadedBy }) => {
+const create = async ({ courseId, type, name, storagePath, downloadUrl, mimeType, size, uploadedBy }) => {
+  const materialType = type === 'questions' || type === 'learning' ? type : 'materials';
   const ref = firestore.collection(COLLECTION).doc();
   const doc = {
     courseId,
+    type: materialType,
     name,
     storagePath,
     downloadUrl: downloadUrl || null,
@@ -78,6 +81,7 @@ const create = async ({ courseId, name, storagePath, downloadUrl, mimeType, size
   return {
     id: ref.id,
     courseId,
+    type: materialType,
     name,
     storagePath,
     downloadUrl: downloadUrl || null,

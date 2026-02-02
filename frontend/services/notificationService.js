@@ -25,39 +25,97 @@ Notifications.setNotificationHandler({
   },
 });
 
-/**
- * Create Android notification channel (required for Android 8.0+)
- * This must be called before any notifications can be displayed
- */
-export const createNotificationChannel = async () => {
-  if (Platform.OS === 'android') {
-    try {
-      // Check if channel already exists
-      const channels = await Notifications.getNotificationChannelsAsync();
-      const channelExists = channels.some(channel => channel.id === 'default');
+import { NOTIFICATION_SOUND_FILES } from '../config/notificationSounds';
 
-      if (!channelExists) {
-        // Create the default notification channel
-        // CRITICAL: HIGH importance ensures notifications appear even when screen is off
-        await Notifications.setNotificationChannelAsync('default', {
-          name: 'Lecture Reminders',
-          description: 'Notifications for upcoming lectures and course updates',
-          importance: Notifications.AndroidImportance.MAX, // MAX = shows as heads-up pop-up
-          vibrationPattern: [0, 250, 250, 250],
-          lightColor: '#2563eb',
-          sound: 'default',
-          enableVibrate: true,
-          showBadge: true,
-          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-          bypassDnd: true, // Allow notifications to bypass Do Not Disturb if high priority
-        });
-        console.log('Android notification channel created successfully');
-      } else {
-        console.log('Android notification channel already exists');
+const ANDROID_CHANNEL_DEFAULT = 'default';
+const ANDROID_CHANNEL_R1 = 'default_r1';
+const ANDROID_CHANNEL_R2 = 'default_r2';
+const ANDROID_CHANNEL_R3 = 'default_r3';
+const ANDROID_CHANNEL_SILENT = 'default_silent';
+
+const CHANNEL_OPTIONS_SOUND = {
+  name: 'Lecture Reminders',
+  description: 'Notifications for upcoming lectures and course updates',
+  importance: Notifications.AndroidImportance.MAX,
+  vibrationPattern: [0, 250, 250, 250],
+  lightColor: '#2563eb',
+  sound: 'default',
+  enableVibrate: true,
+  showBadge: true,
+  lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+  bypassDnd: true,
+};
+
+/**
+ * Get Android channel ID for a sound preference (so the notification actually plays sound)
+ */
+export const getChannelIdForSound = (soundPreference) => {
+  if (Platform.OS !== 'android') return null;
+  switch (soundPreference) {
+    case 'r1': return ANDROID_CHANNEL_R1;
+    case 'r2': return ANDROID_CHANNEL_R2;
+    case 'r3': return ANDROID_CHANNEL_R3;
+    case 'none': return ANDROID_CHANNEL_SILENT;
+    case 'default':
+    default: return ANDROID_CHANNEL_DEFAULT;
+  }
+};
+
+/**
+ * Create Android notification channels (required for Android 8.0+)
+ * Sound only plays if the notification uses a channel that has sound configured.
+ * @param {boolean} forceRecreate - If true, delete and recreate the default channel (fixes "shows but no sound")
+ */
+export const createNotificationChannel = async (forceRecreate = false) => {
+  if (Platform.OS !== 'android') return;
+  try {
+    const channels = await Notifications.getNotificationChannelsAsync() || [];
+    const channelIds = new Set(channels.map((c) => c.id));
+
+    if (forceRecreate && channelIds.has(ANDROID_CHANNEL_DEFAULT)) {
+      try {
+        await Notifications.deleteNotificationChannelAsync(ANDROID_CHANNEL_DEFAULT);
+      } catch (e) {
+        // Ignore if delete fails (e.g. API not available)
       }
-    } catch (error) {
-      console.error('Error creating Android notification channel:', error);
+      channelIds.delete(ANDROID_CHANNEL_DEFAULT);
     }
+
+    if (!channelIds.has(ANDROID_CHANNEL_DEFAULT)) {
+      await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_DEFAULT, CHANNEL_OPTIONS_SOUND);
+      console.log('Android notification channel (default) created');
+    }
+
+    const customSoundChannels = [
+      { id: ANDROID_CHANNEL_R1, sound: NOTIFICATION_SOUND_FILES.r1, name: 'Lecture Reminders (Sound 1)' },
+      { id: ANDROID_CHANNEL_R2, sound: NOTIFICATION_SOUND_FILES.r2, name: 'Lecture Reminders (Sound 2)' },
+      { id: ANDROID_CHANNEL_R3, sound: NOTIFICATION_SOUND_FILES.r3, name: 'Lecture Reminders (Sound 3)' },
+    ];
+    for (const ch of customSoundChannels) {
+      if (!channelIds.has(ch.id)) {
+        await Notifications.setNotificationChannelAsync(ch.id, {
+          ...CHANNEL_OPTIONS_SOUND,
+          name: ch.name,
+          sound: ch.sound,
+        });
+      }
+    }
+
+    if (!channelIds.has(ANDROID_CHANNEL_SILENT)) {
+      await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_SILENT, {
+        name: 'Lecture Reminders (Silent)',
+        description: 'Notifications without sound',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#2563eb',
+        sound: null,
+        enableVibrate: true,
+        showBadge: true,
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      });
+    }
+  } catch (error) {
+    console.error('Error creating Android notification channel:', error);
   }
 };
 
@@ -249,12 +307,23 @@ export const removePushToken = async () => {
  * @param {boolean} forceRegister - Force registration even if token hasn't changed (useful for signup/login)
  * @returns {Promise<boolean>} True if initialization successful
  */
+const NOTIFICATION_CHANNEL_SOUND_FIXED_KEY = '@notification_channel_sound_fixed';
+
 export const initializeNotifications = async (forceRegister = false) => {
   try {
     console.log('🔔 Initializing notifications...');
 
-    // Create Android notification channel first (critical for Android 8.0+)
-    await createNotificationChannel();
+    if (Platform.OS === 'android') {
+      const soundFixApplied = await AsyncStorage.getItem(NOTIFICATION_CHANNEL_SOUND_FIXED_KEY);
+      if (!soundFixApplied) {
+        await createNotificationChannel(true);
+        await AsyncStorage.setItem(NOTIFICATION_CHANNEL_SOUND_FIXED_KEY, '1');
+      } else {
+        await createNotificationChannel();
+      }
+    } else {
+      await createNotificationChannel();
+    }
 
     const hasPermission = await requestNotificationPermissions();
     if (!hasPermission) {

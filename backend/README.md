@@ -50,6 +50,18 @@ A Node.js/Express backend for the LectureLet university course management mobile
 
 The server will start on `http://localhost:3000`
 
+### Deploying to Render (or similar)
+
+Set these **environment variables** in your Render service (Dashboard → Environment):
+
+| Variable | Description |
+|----------|-------------|
+| `FIREBASE_SERVICE_ACCOUNT_KEY` | **Required.** Full Firebase service account JSON as a single line. In Firebase Console: Project Settings → Service accounts → Generate new private key. Copy the entire JSON and paste as the value (minify to one line if needed). |
+| `FIREBASE_SERVICE_ACCOUNT_PATH` | Optional. Path to a key file instead of `FIREBASE_SERVICE_ACCOUNT_KEY` (e.g. if mounting a secret file). |
+| Other vars | Copy from your local `.env` (e.g. `JWT_SECRET`, `DATABASE_*`, `PORT`, etc.) as needed. |
+
+Without `FIREBASE_SERVICE_ACCOUNT_KEY` (or a valid `FIREBASE_SERVICE_ACCOUNT_PATH`), the server will fail to start with: *Firebase service account key not found*.
+
 ## 📚 API Documentation
 
 ### Base URL

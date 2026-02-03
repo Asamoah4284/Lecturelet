@@ -3,7 +3,6 @@ package com.LectureLet.app
 import android.app.Application
 import android.content.res.Configuration
 
-import com.google.firebase.FirebaseApp
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
@@ -41,8 +40,6 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
-    // Initialize Firebase before FCM/expo-notifications (required for getDevicePushTokenAsync on Android)
-    FirebaseApp.initializeApp(this)
     DefaultNewArchitectureEntryPoint.releaseLevel = try {
       ReleaseLevel.valueOf(BuildConfig.REACT_NATIVE_RELEASE_LEVEL.uppercase())
     } catch (e: IllegalArgumentException) {

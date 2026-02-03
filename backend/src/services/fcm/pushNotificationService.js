@@ -5,10 +5,26 @@
 
 const { messaging } = require('../../config/firebase');
 const { getActiveTokens } = require('../firestore/deviceTokens');
+const { getUserById } = require('../firestore/users');
+const { getChannelIdForSound, getSoundFilenameForPayload } = require('../firestore/alerts');
 
 /** Returns true if token is an Expo push token (FCM cannot deliver to these). */
 const isExpoPushToken = (token) =>
   typeof token === 'string' && (token.startsWith('ExponentPushToken[') || token.startsWith('ExpoPushToken['));
+
+/**
+ * Derive Android channelId from sound value.
+ * Accepts: 'r1', 'r1.wav', 'r2', 'r2.wav', 'r3', 'r3.wav', 'default', 'none', etc.
+ * Returns: 'default_r1', 'default_r2', 'default_r3', 'default_silent', or 'default'.
+ */
+const deriveChannelId = (sound) => {
+  if (!sound || sound === 'default') return 'default';
+  if (sound === 'none') return 'default_silent';
+  // Extract base name: 'r1.wav' -> 'r1', 'r2' -> 'r2'
+  const base = sound.replace(/\.wav$/i, '');
+  if (['r1', 'r2', 'r3'].includes(base)) return `default_${base}`;
+  return 'default';
+};
 
 /**
  * Send push notification to a single device
@@ -46,7 +62,7 @@ const sendPushNotification = async (fcmToken, title, body, data = {}) => {
         priority: 'high',
         notification: {
           sound: data.sound || 'default',
-          channelId: 'default',
+          channelId: deriveChannelId(data.sound), // Use correct channel for custom sound
         },
       },
       apns: {
@@ -59,6 +75,7 @@ const sendPushNotification = async (fcmToken, title, body, data = {}) => {
       },
     };
 
+    console.log(`FCM sound: ${data.sound || 'default'}, channelId: ${deriveChannelId(data.sound)}`);
     const response = await messaging.send(message);
     console.log('Successfully sent FCM message:', response);
 
@@ -119,49 +136,43 @@ const sendBulkPushNotifications = async (notifications) => {
   for (let i = 0; i < notifications.length; i += batchSize) {
     const batch = notifications.slice(i, i + batchSize);
     
-    const messages = batch.map(notif => ({
-      token: notif.pushToken,
-      notification: {
-        title: notif.title,
-        body: notif.body,
-      },
-      data: {
-        ...Object.keys(notif.data || {}).reduce((acc, key) => {
-          acc[key] = String(notif.data[key]);
-          return acc;
-        }, {}),
-        type: notif.data?.type || 'lecture_reminder',
-      },
-      android: {
-        priority: 'high',
+    // Build individual messages with correct channelId per user's sound preference
+    const messages = batch.map(notif => {
+      const soundVal = notif.data?.sound || 'default';
+      return {
+        token: notif.pushToken,
         notification: {
-          sound: notif.data?.sound || 'default',
-          channelId: 'default',
+          title: notif.title,
+          body: notif.body,
         },
-      },
-      apns: {
-        payload: {
-          aps: {
-            sound: notif.data?.sound || 'default',
-            badge: notif.data?.badge !== undefined ? notif.data.badge : 1,
+        data: {
+          ...Object.keys(notif.data || {}).reduce((acc, key) => {
+            acc[key] = String(notif.data[key]);
+            return acc;
+          }, {}),
+          type: notif.data?.type || 'lecture_reminder',
+        },
+        android: {
+          priority: 'high',
+          notification: {
+            sound: soundVal,
+            channelId: deriveChannelId(soundVal), // Correct channel for custom sound
           },
         },
-      },
-    }));
+        apns: {
+          payload: {
+            aps: {
+              sound: soundVal,
+              badge: notif.data?.badge !== undefined ? notif.data.badge : 1,
+            },
+          },
+        },
+      };
+    });
 
     try {
-      // Use sendEachForMulticast (sendMulticast was deprecated in firebase-admin v11+)
-      const multicastMessage = {
-        tokens: messages.map(m => m.token),
-        notification: {
-          title: messages[0].notification.title,
-          body: messages[0].notification.body,
-        },
-        data: messages[0].data,
-        android: messages[0].android,
-        apns: messages[0].apns,
-      };
-      const response = await messaging.sendEachForMulticast(multicastMessage);
+      // Use sendEach so each message uses its own sound/channel (per-user preference)
+      const response = await messaging.sendEach(messages);
 
       // Process results (same BatchResponse shape: responses array)
       response.responses.forEach((resp, idx) => {
@@ -229,8 +240,103 @@ const sendToUser = async (userId, title, body, data = {}) => {
   return sendBulkPushNotifications(notifications);
 };
 
+/**
+ * Build FCM message with custom notification sound (Android channel + iOS sound).
+ * Fallback to default sound if custom sound is invalid.
+ * @param {string} token - FCM token
+ * @param {string} title - Notification title
+ * @param {string} body - Notification body
+ * @param {Object} data - Data payload (all values stringified)
+ * @param {string} soundPreference - User preference: 'default' | 'r1' | 'r2' | 'r3' | 'none'
+ * @returns {Object} FCM Message
+ */
+const buildAlertMessage = (token, title, body, data = {}, soundPreference = 'default') => {
+  const soundFile = getSoundFilenameForPayload(soundPreference);
+  const channelId = getChannelIdForSound(soundPreference);
+  const androidSound = soundFile || 'default';
+  const androidChannel = channelId || 'default';
+  const apnsSound = soundFile === null ? undefined : (soundFile === 'default' ? 'default' : soundFile);
+
+  const message = {
+    token,
+    notification: { title, body },
+    data: {
+      ...Object.keys(data).reduce((acc, key) => {
+        acc[key] = String(data[key]);
+        return acc;
+      }, {}),
+      type: data.type || 'alert',
+    },
+    android: {
+      priority: 'high',
+      notification: {
+        sound: androidSound,
+        channelId: androidChannel,
+      },
+    },
+    apns: {
+      payload: {
+        aps: {
+          sound: apnsSound !== undefined ? apnsSound : 'default',
+          badge: data.badge !== undefined ? Number(data.badge) : 1,
+          'content-available': 0,
+        },
+      },
+      fcmOptions: {},
+    },
+  };
+  return message;
+};
+
+/**
+ * Send alert push to a user: fetch user's selected sound from Firestore and send FCM with that sound.
+ * Works when app is closed; respects Android channels and iOS sound.
+ * @param {string} userId - Firestore user ID
+ * @param {string} title - Notification title
+ * @param {string} body - Notification body
+ * @param {Object} data - Data payload
+ * @returns {Promise<Object>} { success, sent, failed, error? }
+ */
+const sendAlertToUser = async (userId, title, body, data = {}) => {
+  const [user, deviceTokens] = await Promise.all([
+    getUserById(userId),
+    getActiveTokens(userId),
+  ]);
+  if (!user) {
+    return { success: false, error: 'User not found', sent: 0 };
+  }
+  if (deviceTokens.length === 0) {
+    return { success: false, error: 'No active device tokens', sent: 0 };
+  }
+  const soundPreference = (user.notificationSound && user.notificationSound.trim()) || 'default';
+  const messages = deviceTokens.map((t) =>
+    buildAlertMessage(t.pushToken, title, body, data, soundPreference)
+  );
+  const results = { sent: 0, failed: 0, tokensToRemove: [] };
+  for (const msg of messages) {
+    try {
+      await messaging.send(msg);
+      results.sent++;
+    } catch (err) {
+      results.failed++;
+      const code = err.code || err.errorInfo?.code;
+      if (['messaging/invalid-registration-token', 'messaging/registration-token-not-registered'].includes(code)) {
+        results.tokensToRemove.push(msg.token);
+      }
+    }
+  }
+  return {
+    success: results.failed === 0,
+    sent: results.sent,
+    failed: results.failed,
+    tokensToRemove: results.tokensToRemove,
+  };
+};
+
 module.exports = {
   sendPushNotification,
   sendBulkPushNotifications,
   sendToUser,
+  buildAlertMessage,
+  sendAlertToUser,
 };

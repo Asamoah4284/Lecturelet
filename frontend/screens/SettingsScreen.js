@@ -1211,7 +1211,7 @@ const SettingsContent = ({ navigation }) => {
                   onPress={async () => {
                     setNotificationSound(sound.value);
                     // Play this sound when tapped so user hears it immediately
-                    playSoundOnTap(sound.value);
+                    await playSoundOnTap(sound.value);
                     // Auto-save notification sound preference
                     if (isAuthenticated) {
                       await AsyncStorage.setItem('@notification_sound', sound.value);
@@ -1222,8 +1222,7 @@ const SettingsContent = ({ navigation }) => {
                         await AsyncStorage.setItem('@user_data', JSON.stringify(userData));
                       }
                       if (notificationsEnabled) {
-                        const { createNotificationChannel } = require('../services/notificationService');
-                        await createNotificationChannel(true);
+                        // Channel already recreated by playSoundOnTap, just save preference
                         await saveNotificationPreference(notificationsEnabled, reminderMinutes, sound.value);
                       }
                     }

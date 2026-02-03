@@ -25,6 +25,9 @@ const sendPushNotification = async (pushToken, title, body, data = {}) => {
     // Construct the message
     // CRITICAL: These fields ensure notifications appear even when screen is off
     const soundValue = data.sound || 'default';
+    // Derive correct Android channel from sound: 'r1.wav' -> 'default_r1', etc.
+    const base = (soundValue || '').replace(/\.wav$/i, '');
+    const channelId = ['r1', 'r2', 'r3'].includes(base) ? `default_${base}` : (soundValue === 'none' ? 'default_silent' : 'default');
 
     const message = {
       to: pushToken,
@@ -36,7 +39,7 @@ const sendPushNotification = async (pushToken, title, body, data = {}) => {
         type: data.type || 'lecture_reminder',
       },
       priority: 'high', // High priority ensures notification appears even when screen is off
-      channelId: 'default', // Android notification channel
+      channelId: channelId, // Android notification channel (derived from sound)
       // iOS-specific fields for proper notification display
       badge: data.badge !== undefined ? data.badge : 1, // Set badge count (iOS)
       subtitle: data.subtitle || undefined, // Optional subtitle for iOS
@@ -44,7 +47,7 @@ const sendPushNotification = async (pushToken, title, body, data = {}) => {
       // Android-specific fields for background notifications
       android: {
         priority: 'high', // High priority for Android
-        channelId: 'default', // Use the default channel we created
+        channelId: channelId, // Use channel that matches user's sound preference
         sound: soundValue, // Sound for Android
       },
     };

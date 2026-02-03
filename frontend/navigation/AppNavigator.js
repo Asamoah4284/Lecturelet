@@ -25,6 +25,7 @@ import CreateTutorialScreen from '../screens/CreateTutorialScreen';
 import CreateAssignmentScreen from '../screens/CreateAssignmentScreen';
 import CourseMaterialsScreen from '../screens/CourseMaterialsScreen';
 import AnnouncementScreen from '../screens/AnnouncementScreen';
+import AlertSoundPickerScreen from '../screens/AlertSoundPickerScreen';
 
 const Stack = createStackNavigator();
 
@@ -198,6 +199,11 @@ const AppNavigator = () => {
           name="Announcement"
           component={AnnouncementScreen}
           options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="AlertSoundPicker"
+          component={AlertSoundPickerScreen}
+          options={{ title: 'Alert sound' }}
         />
       </Stack.Navigator>
     </NavigationContainer>

@@ -52,7 +52,15 @@ const SignupScreen = ({ navigation }) => {
         setStep(STEP_CODE);
         setVerificationCode('');
       } else {
-        Alert.alert('Error', data.message || 'Could not send verification code');
+        const msg = data.message || 'Could not send verification code';
+        if (response.status === 409) {
+          Alert.alert('Number already exists', msg, [
+            { text: 'OK' },
+            { text: 'Log in', onPress: () => navigation.navigate('Login') },
+          ]);
+        } else {
+          Alert.alert('Error', msg);
+        }
       }
     } catch (e) {
       Alert.alert('Error', 'Could not send verification code. Please try again.');

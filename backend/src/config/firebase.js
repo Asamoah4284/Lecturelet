@@ -14,8 +14,20 @@ const initializeFirebase = () => {
   if (firebaseInitialized) {
     return admin;
   }
+  if (admin.apps.length > 0) {
+    firebaseInitialized = true;
+    return admin;
+  }
 
   try {
+    // In Firebase Cloud Functions, use default credentials (no key file needed)
+    if (process.env.K_SERVICE || process.env.FUNCTION_NAME) {
+      admin.initializeApp();
+      firebaseInitialized = true;
+      console.log('✅ Firebase Admin SDK initialized (Cloud Functions)');
+      return admin;
+    }
+
     // Try to load service account key from environment variable or file
     let serviceAccount;
     

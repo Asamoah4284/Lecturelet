@@ -72,13 +72,19 @@ export const createNotificationChannel = async (forceRecreate = false) => {
     const channels = await Notifications.getNotificationChannelsAsync() || [];
     const channelIds = new Set(channels.map((c) => c.id));
 
-    if (forceRecreate && channelIds.has(ANDROID_CHANNEL_DEFAULT)) {
-      try {
-        await Notifications.deleteNotificationChannelAsync(ANDROID_CHANNEL_DEFAULT);
-      } catch (e) {
-        // Ignore if delete fails (e.g. API not available)
+    // When forceRecreate, delete default and custom channels so they are recreated with correct sound
+    const toRecreate = [ANDROID_CHANNEL_DEFAULT, ANDROID_CHANNEL_R1, ANDROID_CHANNEL_R2, ANDROID_CHANNEL_R3];
+    if (forceRecreate) {
+      for (const id of toRecreate) {
+        if (channelIds.has(id)) {
+          try {
+            await Notifications.deleteNotificationChannelAsync(id);
+          } catch (e) {
+            // Ignore if delete fails (e.g. API not available)
+          }
+          channelIds.delete(id);
+        }
       }
-      channelIds.delete(ANDROID_CHANNEL_DEFAULT);
     }
 
     if (!channelIds.has(ANDROID_CHANNEL_DEFAULT)) {
@@ -96,7 +102,7 @@ export const createNotificationChannel = async (forceRecreate = false) => {
         await Notifications.setNotificationChannelAsync(ch.id, {
           ...CHANNEL_OPTIONS_SOUND,
           name: ch.name,
-          sound: ch.sound,
+          sound: ch.sound, // Base filename e.g. 'r1.wav' - must match files in app.json plugins sounds
         });
       }
     }

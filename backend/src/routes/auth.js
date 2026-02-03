@@ -69,6 +69,14 @@ router.post(
         });
       }
 
+      const alreadyRegistered = await phoneNumberExists(normalizedPhone);
+      if (alreadyRegistered) {
+        return res.status(409).json({
+          success: false,
+          message: 'This number is already registered. Please log in instead.',
+        });
+      }
+
       const code = String(Math.floor(100000 + Math.random() * 900000));
       const expiresAt = new Date(Date.now() + CODE_EXPIRY_MINUTES * 60 * 1000);
 

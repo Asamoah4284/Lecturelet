@@ -1,19 +1,25 @@
 /**
  * Expo config. Used for all builds.
- * - Local dev: uses apiUrl from app.json (e.g. your local backend).
- * - Production: set EXPO_PUBLIC_API_URL in EAS Environment Variables to your
- *   deployed backend URL (e.g. https://your-app.onrender.com/api).
  *
- * The apiUrl is YOUR BACKEND API (Node/Express), not Firebase. Firebase (Auth,
- * Firestore, FCM) is used by your backend; the app still talks to your backend.
+ * Firebase-only production (no backend):
+ * - Set EXPO_PUBLIC_API_URL="" in EAS Environment Variables for production profile,
+ *   or leave apiUrl empty. App uses Firebase (Auth, Firestore, FCM) only; no backend calls.
+ *
+ * Local dev with backend:
+ * - Set apiUrl in app.json to your local backend (e.g. http://10.25.105.72:3000/api).
  */
-module.exports = ({ config }) => ({
-  ...config,
-  extra: {
-    ...config.extra,
-    apiUrl:
-      process.env.EXPO_PUBLIC_API_URL ||
-      config.extra?.apiUrl ||
-      'http://localhost:3000/api',
-  },
-});
+module.exports = ({ config }) => {
+  const envApiUrl = process.env.EXPO_PUBLIC_API_URL;
+  const appJsonApiUrl = config.extra?.apiUrl;
+  const apiUrl =
+    envApiUrl !== undefined
+      ? (envApiUrl === '' ? '' : envApiUrl)
+      : (appJsonApiUrl || 'http://localhost:3000/api');
+  return {
+    ...config,
+    extra: {
+      ...config.extra,
+      apiUrl,
+    },
+  };
+};

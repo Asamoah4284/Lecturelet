@@ -679,69 +679,43 @@ const SettingsContent = ({ navigation }) => {
   };
 
   /**
-   * Handles feedback submission
+   * Play the given notification sound when user taps an option (schedules a quick local notification).
    */
-  /**
-   * Preview the selected notification sound by triggering a test notification
-   */
-  const previewNotificationSound = async () => {
+  const playSoundOnTap = async (soundValue) => {
+    if (soundValue === 'none') return; // Silent - nothing to play
     try {
-      // Get the current sound preference
-      const soundPreference = notificationSound;
-
-      // Map sound preference to notification sound value
-      let notificationSoundValue = true; // Default to system sound
-
-      if (soundPreference === 'none') {
-        notificationSoundValue = false; // Silent
-      } else if (soundPreference === 'default') {
-        notificationSoundValue = true; // System default sound
-      } else if (NOTIFICATION_SOUND_IDS.includes(soundPreference)) {
-        const soundFileName = getSoundFileName(soundPreference);
-        if (soundFileName) {
-          console.log(`Using custom sound from sounds folder: ${soundFileName}`);
-          notificationSoundValue = soundFileName;
-        } else {
-          notificationSoundValue = true;
-        }
+      let notificationSoundValue = true;
+      if (soundValue === 'default') {
+        notificationSoundValue = true;
+      } else if (NOTIFICATION_SOUND_IDS.includes(soundValue)) {
+        const soundFileName = getSoundFileName(soundValue);
+        notificationSoundValue = soundFileName ? soundFileName : true;
       } else {
-        // Fallback to default
         notificationSoundValue = true;
       }
 
-      // Check permissions
       const { status } = await Notifications.getPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert(
-          'Permission Required',
-          'Please enable notification permissions to preview sounds.',
-          [{ text: 'OK' }]
-        );
-        return;
-      }
+      if (status !== 'granted') return;
 
       const { createNotificationChannel, getChannelIdForSound } = require('../services/notificationService');
       await createNotificationChannel(true);
-
-      const channelId = getChannelIdForSound(soundPreference);
+      const channelId = getChannelIdForSound(soundValue);
+      // On Android, channelId must match a channel that has the custom sound configured
       const trigger = Platform.OS === 'android' && channelId
-        ? { seconds: 2, channelId }
-        : { seconds: 2 };
+        ? { seconds: 1, channelId }
+        : { seconds: 1 };
 
       await Notifications.scheduleNotificationAsync({
         content: {
-          title: 'Sound Preview 🔊',
-          body: soundPreference === 'none'
-            ? 'This is a silent notification (no sound)'
-            : `This is how your ${soundPreference} notification will sound - Listen for the sound!`,
+          title: 'Notification sound',
+          body: soundValue === 'default' ? 'Default' : soundValue,
           sound: notificationSoundValue,
           priority: Notifications.AndroidNotificationPriority.HIGH,
         },
         trigger,
       });
     } catch (error) {
-      console.error('Error previewing notification sound:', error);
-      Alert.alert('Error', 'Failed to preview sound. Please try again.');
+      console.error('Error playing sound on tap:', error);
     }
   };
 
@@ -1212,21 +1186,12 @@ const SettingsContent = ({ navigation }) => {
           <View style={styles.soundPickerContent}>
             <View style={styles.soundPickerHeader}>
               <Text style={styles.soundPickerTitle}>Select Notification Sound</Text>
-              <View style={styles.soundPickerHeaderRight}>
-                <TouchableOpacity
-                  onPress={previewNotificationSound}
-                  style={styles.previewButton}
-                >
-                  <Ionicons name="play-circle-outline" size={20} color="#2563eb" />
-                  <Text style={styles.previewButtonText}>Preview</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => setShowSoundPicker(false)}
-                  style={styles.soundPickerCloseButton}
-                >
-                  <Ionicons name="close" size={24} color="#6b7280" />
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity
+                onPress={() => setShowSoundPicker(false)}
+                style={styles.soundPickerCloseButton}
+              >
+                <Ionicons name="close" size={24} color="#6b7280" />
+              </TouchableOpacity>
             </View>
 
             <ScrollView style={styles.soundPickerBody}>
@@ -1245,27 +1210,23 @@ const SettingsContent = ({ navigation }) => {
                   ]}
                   onPress={async () => {
                     setNotificationSound(sound.value);
+                    // Play this sound when tapped so user hears it immediately
+                    playSoundOnTap(sound.value);
                     // Auto-save notification sound preference
                     if (isAuthenticated) {
-                      // Store sound preference locally
                       await AsyncStorage.setItem('@notification_sound', sound.value);
-                      // Update user data in AsyncStorage
                       const userDataString = await AsyncStorage.getItem('@user_data');
                       if (userDataString) {
                         const userData = JSON.parse(userDataString);
                         userData.notification_sound = sound.value;
                         await AsyncStorage.setItem('@user_data', JSON.stringify(userData));
                       }
-                      // Recreate Android notification channel with new sound preference
                       if (notificationsEnabled) {
                         const { createNotificationChannel } = require('../services/notificationService');
-                        await createNotificationChannel(true); // Force recreate to update sound
-                        // Auto-save to backend
+                        await createNotificationChannel(true);
                         await saveNotificationPreference(notificationsEnabled, reminderMinutes, sound.value);
                       }
                     }
-                    // Don't close immediately - let user preview if they want
-                    // User can close manually or use preview button
                   }}
                 >
                   <View style={styles.soundOptionLeft}>
@@ -2033,25 +1994,6 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
-  },
-  soundPickerHeaderRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  previewButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: '#eff6ff',
-  },
-  previewButtonText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#2563eb',
   },
   soundPickerTitle: {
     fontSize: 18,

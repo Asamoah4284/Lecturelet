@@ -62,29 +62,21 @@ app.get('/', (req, res) => {
 app.use(notFound);
 app.use(errorHandler);
 
-// Initialize Firebase and start server
+// Initialize Firebase and start server (skip when running inside Firebase Cloud Functions)
 const startServer = async () => {
   try {
-    // Initialize Firebase Admin SDK
     console.log('🔥 Initializing Firebase...');
     initializeFirebase();
     console.log('✅ Firebase initialized successfully');
 
-    // Initialize colleges collection
     console.log('🏛️  Initializing colleges...');
     await initializeColleges();
     console.log('✅ Colleges initialized');
 
-    // Start temporary edit reset job (runs every hour)
     startTemporaryEditResetJob();
-
-    // Start class reminder job (runs every 5 minutes)
     startClassReminderJob();
-
-    // Start device token cleanup job (runs daily)
     startDeviceTokenCleanupJob();
 
-    // Start server
     const PORT = config.port;
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
@@ -96,6 +88,24 @@ const startServer = async () => {
   }
 };
 
-startServer();
+/** Resolve when app is ready (Firebase + colleges). Use this when mounting app in Cloud Functions. */
+const getAppReady = (() => {
+  let promise = null;
+  return () => {
+    if (!promise) {
+      promise = (async () => {
+        initializeFirebase();
+        await initializeColleges();
+        return app;
+      })();
+    }
+    return promise;
+  };
+})();
+
+if (!process.env.K_SERVICE && !process.env.FUNCTION_NAME) {
+  startServer();
+}
 
 module.exports = app;
+module.exports.getAppReady = getAppReady;

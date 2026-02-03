@@ -1,0 +1,8 @@
+{
+  "functions": {
+    "source": "functions",
+    "predeploy": [
+      "node scripts/copy-backend-to-functions.js"
+    ]
+  }
+}

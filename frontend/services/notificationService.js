@@ -28,9 +28,9 @@ Notifications.setNotificationHandler({
 import { NOTIFICATION_SOUND_FILES } from '../config/notificationSounds';
 
 const ANDROID_CHANNEL_DEFAULT = 'default';
-const ANDROID_CHANNEL_R1 = 'default_r1';
-const ANDROID_CHANNEL_R2 = 'default_r2';
-const ANDROID_CHANNEL_R3 = 'default_r3';
+const ANDROID_CHANNEL_R1 = 'lecturelet_r1_channel';
+const ANDROID_CHANNEL_R2 = 'lecturelet_r2_channel';
+const ANDROID_CHANNEL_R3 = 'lecturelet_r3_channel';
 const ANDROID_CHANNEL_SILENT = 'default_silent';
 
 const CHANNEL_OPTIONS_SOUND = {
@@ -93,16 +93,18 @@ export const createNotificationChannel = async (forceRecreate = false) => {
     }
 
     const customSoundChannels = [
-      { id: ANDROID_CHANNEL_R1, sound: NOTIFICATION_SOUND_FILES.r1, name: 'Lecture Reminders (Sound 1)' },
-      { id: ANDROID_CHANNEL_R2, sound: NOTIFICATION_SOUND_FILES.r2, name: 'Lecture Reminders (Sound 2)' },
-      { id: ANDROID_CHANNEL_R3, sound: NOTIFICATION_SOUND_FILES.r3, name: 'Lecture Reminders (Sound 3)' },
+      { id: ANDROID_CHANNEL_R1, sound: 'r1.wav', name: 'LectureLet Alert 1' },
+      { id: ANDROID_CHANNEL_R2, sound: 'r2.wav', name: 'LectureLet Alert 2' },
+      { id: ANDROID_CHANNEL_R3, sound: 'r3.wav', name: 'LectureLet Alert 3' },
     ];
     for (const ch of customSoundChannels) {
+      // Channels are created in Native code (MainApplication.kt) for reliability on startup.
+      // We checks here just in case, but usually existing channels persist.
       if (!channelIds.has(ch.id)) {
         await Notifications.setNotificationChannelAsync(ch.id, {
           ...CHANNEL_OPTIONS_SOUND,
           name: ch.name,
-          sound: ch.sound, // Base filename e.g. 'r1.wav' - must match files in app.json plugins sounds
+          sound: ch.sound, // Base filename e.g. 'r1.wav'
         });
       }
     }
@@ -433,6 +435,7 @@ export const isLocalReminderNotification = (notification) => {
  * @param {Object} notification - Notification object
  * @returns {boolean} True if it's a push notification
  */
+
 export const isPushNotification = (notification) => {
   const data = notification?.request?.content?.data || notification?.data || {};
   const identifier = notification?.request?.identifier || notification?.identifier || '';
@@ -442,4 +445,49 @@ export const isPushNotification = (notification) => {
   return !identifier.startsWith('local_reminder_') &&
     (data.type === 'course_update' ||
       (data.type === 'lecture_reminder' && data.source !== 'local'));
+};
+
+/**
+ * Get a random channel ID from r1, r2, r3
+ * @returns {string} One of lecturelet_r1_channel, lecturelet_r2_channel, lecturelet_r3_channel
+ */
+export const getRandomChannelId = () => {
+  if (Platform.OS !== 'android') return ANDROID_CHANNEL_DEFAULT;
+
+  const channels = [ANDROID_CHANNEL_R1, ANDROID_CHANNEL_R2, ANDROID_CHANNEL_R3];
+  const randomIndex = Math.floor(Math.random() * channels.length);
+  return channels[randomIndex];
+};
+
+/**
+ * Display a notification with a random sound (r1, r2, or r3)
+ * Used for handling Data-Only messages
+ * @param {string} title - Notification title
+ * @param {string} body - Notification body
+ * @param {Object} data - Additional data
+ */
+
+
+// Fix the issue where channelId isn't passed in displayRandomSoundNotification
+// We need to re-implement it to pass channelId correctly
+export const displayRandomSoundNotification = async (title, body, data = {}) => {
+  try {
+    const channelId = getRandomChannelId();
+    console.log(`🔊 Displaying notification with random sound channel: ${channelId}`);
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: title || 'New Notification',
+        body: body || '',
+        data: { ...data, _display_channel: channelId },
+        sound: true,
+        priority: Notifications.AndroidNotificationPriority.HIGH,
+        color: '#2563eb',
+        channelId: channelId, // IMPORTANT: Assign to the random channel
+      },
+      trigger: null,
+    });
+  } catch (error) {
+    console.error('Error displaying random sound notification:', error);
+  }
 };

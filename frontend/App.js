@@ -7,12 +7,13 @@ import { CourseProvider } from './context/CourseContext';
 import { OfflineProvider } from './context/OfflineContext';
 import OfflineBadge from './components/OfflineBadge';
 import AppNavigator from './navigation/AppNavigator';
-import { 
-  initializeNotifications, 
-  setupNotificationListeners, 
+import {
+  initializeNotifications,
+  setupNotificationListeners,
   isPushNotification,
   requestNotificationPermissions,
-  createNotificationChannel 
+  createNotificationChannel,
+  displayRandomSoundNotification
 } from './services/notificationService';
 import { syncAndScheduleReminders, validateAndRescheduleReminders, handleCourseUpdate } from './services/localReminderService';
 
@@ -26,20 +27,20 @@ export default function App() {
       try {
         // Create Android notification channel first (required for Android 8.0+)
         await createNotificationChannel();
-        
+
         // Request permissions early (even if user isn't logged in yet)
         // This ensures push tokens can be generated in production builds
         await requestNotificationPermissions();
-        
+
         // Check if user is logged in
         const token = await AsyncStorage.getItem('@auth_token');
         if (token) {
           // User is logged in, register push token and sync reminders
           await initializeNotifications();
-          
+
           // Sync and schedule local reminder notifications
           await syncAndScheduleReminders();
-          
+
           // Validate existing notifications
           await validateAndRescheduleReminders();
         }
@@ -54,10 +55,28 @@ export default function App() {
     const cleanup = setupNotificationListeners(
       async (notification) => {
         console.log('Notification received:', notification);
-        
+
+        // Handle Data-Only message manually to play random sound
+        // Data-only messages (handled by expo-notifications in foreground/background) might have null title/body
+        // or trigger this listener.
+        const content = notification.request?.content || {};
+        const data = content.data || {};
+
+        // If it looks like a data message (title null/missing) OR we want to force random sound for specific types
+        // The user said: "Use DATA-ONLY Firebase messages... Manually display the notification... Assign the randomly selected channelId"
+        if ((!content.title && Object.keys(data).length > 0) || data.forceRandomSound) {
+          console.log('Detected Data-Only message, triggering manual display with Random Sound');
+          await displayRandomSoundNotification(
+            data.title || 'New Notification',
+            data.body || 'You have a new update',
+            data
+          );
+          // We might want to stop here so we don't handle it twice if logic overlaps?
+          // Assuming data messages don't trigger the default system alert if title is null.
+        }
+
         // If it's a push notification about a course update, reschedule local reminders
         if (isPushNotification(notification)) {
-          const data = notification.request?.content?.data || {};
           if (data.type === 'course_update' && data.courseId) {
             // Course was updated, reschedule reminders for that course
             await handleCourseUpdate(data.courseId);
@@ -84,7 +103,7 @@ export default function App() {
           if (token) {
             // Re-register push token when app comes to foreground (ensures it's up to date)
             await initializeNotifications(true);
-            
+
             // Validate and reschedule if needed
             await validateAndRescheduleReminders();
             // Sync to get any course updates

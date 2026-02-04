@@ -3,8 +3,8 @@
     "name": "LectureLet",
     "slug": "LectureLet",
     "scheme": "lecturelet",
-    "version": "1.0.5",
-    "runtimeVersion": "1.0.5",
+    "version": "1.0.6",
+    "runtimeVersion": "1.0.6",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./assets/logo-1.png",
@@ -19,7 +19,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.LectureLet.app",
-      "buildNumber": "7",
+      "buildNumber": "9",
       "infoPlist": {
         "UIBackgroundModes": [
           "remote-notification"
@@ -37,7 +37,7 @@
       },
       "package": "com.LectureLet.app",
       "googleServicesFile": "google-services.json",
-      "versionCode": 7,
+      "versionCode": 9,
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",

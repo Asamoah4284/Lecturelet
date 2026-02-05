@@ -18,7 +18,7 @@ import { WebView } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import Button from '../components/Button';
-import { getApiUrl, PAYSTACK_PUBLIC_KEY } from '../config/api';
+import { getApiUrl, PAYSTACK_PUBLIC_KEY, isFirebaseOnly } from '../config/api';
 import { initializeNotifications, removePushToken } from '../services/notificationService';
 import { syncAndScheduleReminders, cancelAllReminders } from '../services/localReminderService';
 import { getTrialStatus } from '../utils/trialHelpers';
@@ -420,6 +420,14 @@ const SettingsContent = ({ navigation }) => {
       return;
     }
 
+    if (isFirebaseOnly) {
+      Alert.alert(
+        'Payment Unavailable',
+        'Payment requires a connection to the server. This build is not configured with a backend API URL.'
+      );
+      return;
+    }
+
     // Check if Paystack is configured
     if (!PAYSTACK_PUBLIC_KEY) {
       Alert.alert(
@@ -470,7 +478,19 @@ const SettingsContent = ({ navigation }) => {
         }),
       });
 
-      const data = await response.json();
+      let data;
+      try {
+        const text = await response.text();
+        data = text ? JSON.parse(text) : {};
+      } catch (parseError) {
+        console.error('Payment init response parse error:', parseError);
+        const fallbackMessage = response.status === 502 || response.status === 503
+          ? 'Server is temporarily unavailable. Please try again in a moment.'
+          : `Request failed (${response.status}). Please check your connection.`;
+        Alert.alert('Payment Initialization Failed', fallbackMessage);
+        setIsProcessingPayment(false);
+        return;
+      }
 
       if (response.ok && data.success) {
         // Store payment data and show WebView with authorization_url
@@ -483,12 +503,13 @@ const SettingsContent = ({ navigation }) => {
         });
         setShowPayment(true);
       } else {
-        Alert.alert('Payment Initialization Failed', data.error || data.message || 'Failed to initialize payment.');
+        const errorMsg = data.error || data.message || data.details || 'Failed to initialize payment.';
+        Alert.alert('Payment Initialization Failed', errorMsg);
         setIsProcessingPayment(false);
       }
     } catch (error) {
       console.error('Payment initialization error:', error);
-      Alert.alert('Error', 'Network error. Please check your connection.');
+      Alert.alert('Error', error.message || 'Network error. Please check your connection.');
       setIsProcessingPayment(false);
     }
   };
@@ -623,7 +644,7 @@ const SettingsContent = ({ navigation }) => {
         setIsProcessingPayment(false);
 
         Alert.alert(
-          'Accessuccessful! 🎉',
+          'Payment successful! 🎉',
           `Your payment of GH₵${paymentData.amount} has been processed successfully! Your Access status has been updated.`,
           [{
             text: 'OK',
@@ -775,7 +796,7 @@ const SettingsContent = ({ navigation }) => {
       const data = JSON.parse(event.nativeEvent.data);
 
       if (data.status === 'success') {
-        console.log('Accessuccess message received, verifying automatically...');
+        console.log('Payment success message received, verifying automatically...');
         // Close payment modal immediately
         setShowPayment(false);
         setIsProcessingPayment(true);
@@ -1325,10 +1346,10 @@ const SettingsContent = ({ navigation }) => {
                     }
                     
                     // Check for success text in page content (Paystack success page)
-                    if (bodyText.includes('Accessuccessful') || 
+                    if (bodyText.includes('Payment successful') || 
                         bodyText.includes('transaction successful') ||
                         bodyText.includes('you paid') ||
-                        bodyHTML.includes('Accessuccessful') ||
+                        bodyHTML.includes('Payment successful') ||
                         bodyHTML.includes('transaction successful') ||
                         document.querySelector('[class*="success"]') ||
                         document.querySelector('[id*="success"]')) {

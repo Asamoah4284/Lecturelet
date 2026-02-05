@@ -2,8 +2,9 @@ const express = require('express');
 const https = require('https');
 const crypto = require('crypto');
 const { body } = require('express-validator');
-const { Payment, User } = require('../models');
 const { authenticate } = require('../middleware/auth');
+const { updateUser: updateFirestoreUser } = require('../services/firestore/users');
+const paymentsFirestore = require('../services/firestore/payments');
 const validate = require('../middleware/validate');
 
 const router = express.Router();
@@ -49,7 +50,8 @@ router.post(
       if (!process.env.PAYSTACK_SECRET_KEY) {
         return res.status(500).json({
           success: false,
-          error: 'Accesservice is not configured. Please contact support.',
+          error: 'Payment service is not configured. Please contact support.',
+          message: 'PAYSTACK_SECRET_KEY is missing on the server.',
         });
       }
 
@@ -86,22 +88,17 @@ router.post(
               throw new Error(response.message || 'Payment initialization failed');
             }
 
-            // Create payment record in database with fixed backend amount
-            const payment = await Payment.create({
-              userId: userId,
-              email: email,
-              amount: amount, // Fixed amount from backend
-              currency: currency, // Fixed currency from backend
-              reference: reference,
+            // Create payment record in Firestore
+            await paymentsFirestore.create({
+              userId,
+              email,
+              amount,
+              currency,
+              reference,
               accessCode: response.data.access_code,
               authorizationUrl: response.data.authorization_url,
               status: 'pending',
-              metadata: {
-                userId: userId,
-                amount: amount, // Fixed amount stored in metadata
-                currency: currency,
-                fixedAmount: true, // Flag to indicate this was a fixed amount payment
-              },
+              metadata: { userId, amount, currency, fixedAmount: true },
             });
 
             // Return Paystack response with reference
@@ -166,17 +163,15 @@ router.post(
  */
 const processSuccessfulPayment = async (reference, userId = null) => {
   try {
-    // Find payment record
-    const payment = await Payment.findOne({ reference });
+    const payment = await paymentsFirestore.getByReference(reference);
     if (!payment) {
       console.error(`Payment record not found for reference: ${reference}`);
       return { success: false, error: 'Payment record not found' };
     }
 
-    // If payment is already verified, skip
     if (payment.status === 'success') {
       console.log(`Payment ${reference} already verified`);
-      return { success: true, alreadyVerified: true, payment: payment };
+      return { success: true, alreadyVerified: true, payment };
     }
 
     // Verify payment with Paystack
@@ -210,7 +205,7 @@ const processSuccessfulPayment = async (reference, userId = null) => {
             });
 
             if (response.status && response.data && response.data.status === 'success') {
-              // Accessuccessful
+              // Successful
               console.log(`Payment ${reference} verified as successful by Paystack`);
               
               // SECURITY: Verify the amount paid matches our expected fixed amount
@@ -227,36 +222,30 @@ const processSuccessfulPayment = async (reference, userId = null) => {
                 return;
               }
               
-              payment.status = 'success';
-              payment.paidAt = new Date();
-              payment.gatewayResponse = JSON.stringify(response.data);
-              
-              // Save payment with error handling
               try {
-                await payment.save();
-                console.log(`Payment ${reference} status updated to 'success' in database`);
+                await paymentsFirestore.update(reference, {
+                  status: 'success',
+                  paidAt: new Date(),
+                  gatewayResponse: JSON.stringify(response.data),
+                });
+                console.log(`Payment ${reference} status updated to 'success' in Firestore`);
               } catch (saveError) {
                 console.error(`Error saving payment ${reference}:`, saveError);
                 resolve({
                   success: false,
-                  error: 'Failed to save Access status',
+                  error: 'Failed to save payment status',
                   details: saveError.message,
                 });
                 return;
               }
+              const updatedPayment = await paymentsFirestore.getByReference(reference);
 
-              // Update user Access status
+              // Update user Access status in Firestore (userId is Firebase UID)
               const userIdToUpdate = userId || payment.userId;
               if (userIdToUpdate) {
                 try {
-                  const user = await User.findById(userIdToUpdate);
-                  if (user) {
-                    user.paymentStatus = true;
-                    await user.save();
-                    console.log(`Access status updated for user: ${userIdToUpdate}`);
-                  } else {
-                    console.warn(`User ${userIdToUpdate} not found when updating Access status`);
-                  }
+                  await updateFirestoreUser(userIdToUpdate, { paymentStatus: true });
+                  console.log(`Access status updated for user: ${userIdToUpdate}`);
                 } catch (userError) {
                   console.error(`Error updating user Access status for ${userIdToUpdate}:`, userError);
                   // Don't fail the whole process if user update fails
@@ -266,26 +255,19 @@ const processSuccessfulPayment = async (reference, userId = null) => {
               resolve({
                 success: true,
                 message: 'Payment verified and processed successfully',
-                payment: payment,
+                payment: updatedPayment,
               });
             } else {
-              // Payment failed or pending
               console.log(`Payment ${reference} verification returned:`, {
                 status: response.status,
                 dataStatus: response.data?.status,
                 message: response.message
               });
-              
-              // Only mark as failed if explicitly failed, otherwise keep as pending
-              if (response.data && response.data.status === 'failed') {
-                payment.status = 'failed';
-              } else {
-                // Keep as pending if status is not explicitly success or failed
-                console.log(`Payment ${reference} still pending, not marking as failed`);
-              }
-              
-              payment.gatewayResponse = JSON.stringify(response);
-              await payment.save();
+              const newStatus = (response.data && response.data.status === 'failed') ? 'failed' : payment.status;
+              await paymentsFirestore.update(reference, {
+                status: newStatus,
+                gatewayResponse: JSON.stringify(response),
+              });
 
               resolve({
                 success: false,
@@ -351,12 +333,12 @@ router.post(
       if (!process.env.PAYSTACK_SECRET_KEY) {
         return res.status(500).json({
           success: false,
-          error: 'Accesservice is not configured. Please contact support.',
+          error: 'Payment service is not configured. Please contact support.',
+          message: 'PAYSTACK_SECRET_KEY is missing on the server.',
         });
       }
 
-      // Find payment record
-      const payment = await Payment.findOne({ reference });
+      const payment = await paymentsFirestore.getByReference(reference);
       if (!payment) {
         return res.status(404).json({
           success: false,
@@ -364,8 +346,8 @@ router.post(
         });
       }
 
-      // Verify payment belongs to user
-      if (payment.userId && payment.userId.toString() !== userId) {
+      // Verify payment belongs to user (userId is string/Firebase UID)
+      if (payment.userId && String(payment.userId) !== userId) {
         return res.status(403).json({
           success: false,
           error: 'Unauthorized access to payment record',
@@ -430,7 +412,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
     // Handle successful payment event
     if (event.event === 'charge.success' || event.event === 'transaction.success') {
       const reference = event.data.reference;
-      console.log(`Webhook received: Accessuccessful for reference ${reference}`);
+      console.log(`Webhook received: payment success for reference ${reference}`);
 
       // Process payment automatically
       const result = await processSuccessfulPayment(reference);

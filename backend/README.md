@@ -58,7 +58,8 @@ Set these **environment variables** in your Render service (Dashboard → Enviro
 |----------|-------------|
 | `FIREBASE_SERVICE_ACCOUNT_KEY` | **Required.** Full Firebase service account JSON as a single line. In Firebase Console: Project Settings → Service accounts → Generate new private key. Copy the entire JSON and paste as the value (minify to one line if needed). |
 | `FIREBASE_SERVICE_ACCOUNT_PATH` | Optional. Path to a key file instead of `FIREBASE_SERVICE_ACCOUNT_KEY` (e.g. if mounting a secret file). |
-| Other vars | Copy from your local `.env` (e.g. `JWT_SECRET`, `DATABASE_*`, `PORT`, etc.) as needed. |
+| `PAYSTACK_SECRET_KEY` | **Required for payments.** Paystack secret key (starts with `sk_live_` or `sk_test_`). Without it, payment initialization returns "Payment service is not configured." |
+| Other vars | Copy from your local `.env` (e.g. `JWT_SECRET`, `MONGODB_URI`, `PORT`, etc.) as needed. |
 
 Without `FIREBASE_SERVICE_ACCOUNT_KEY` (or a valid `FIREBASE_SERVICE_ACCOUNT_PATH`), the server will fail to start with: *Firebase service account key not found*.
 

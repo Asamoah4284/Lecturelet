@@ -22,7 +22,8 @@
       "buildNumber": "10",
       "infoPlist": {
         "UIBackgroundModes": [
-          "remote-notification"
+          "remote-notification",
+          "remote-notificatio"
         ],
         "ITSAppUsesNonExemptEncryption": false
       },
@@ -39,6 +40,10 @@
       "googleServicesFile": "google-services.json",
       "versionCode": 10,
       "permissions": [
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "com.android.alarm.permission.SET_ALARM",
+        "POST_NOTIFICATIONS",
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
         "com.android.alarm.permission.SET_ALARM",
@@ -66,7 +71,7 @@
       ]
     ],
     "extra": {
-      "apiUrl": "http://10.71.215.72:3000/api",
+      "apiUrl": "https://lecturelet.onrender.com/api",
       "PAYSTACK_PUBLIC_KEY": "pk_test_5fe292bf0df872407adaebe53b5982e173a45f44",
       "eas": {
         "projectId": "ea913b88-c870-4e26-90b7-87661d3890f0"
@@ -75,6 +80,9 @@
         "projectId": "lecturelet-c03be"
       }
     },
-    "owner": "asamoah4284"
+    "owner": "asamoah4284",
+    "updates": {
+      "url": "https://u.expo.dev/ea913b88-c870-4e26-90b7-87661d3890f0"
+    }
   }
 }

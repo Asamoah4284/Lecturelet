@@ -76,18 +76,16 @@ const AlertSoundPickerScreen = ({ navigation }) => {
         soundFile = fn || true;
       }
       const channelId = getChannelIdForSound(soundValue);
-      const trigger =
-        Platform.OS === 'android' && channelId
-          ? { seconds: 1, channelId }
-          : { seconds: 1 };
+      const content = {
+        title: 'Alert sound',
+        body: soundValue === 'default' ? 'Default' : soundValue,
+        sound: soundFile,
+        priority: Notifications.AndroidNotificationPriority.HIGH,
+        ...(Platform.OS === 'android' && channelId && { channelId }),
+      };
       await Notifications.scheduleNotificationAsync({
-        content: {
-          title: 'Alert sound',
-          body: soundValue === 'default' ? 'Default' : soundValue,
-          sound: soundFile,
-          priority: Notifications.AndroidNotificationPriority.HIGH,
-        },
-        trigger,
+        content,
+        trigger: null, // Immediate delivery on first tap
       });
     } catch (e) {
       console.warn('Preview sound failed', e);

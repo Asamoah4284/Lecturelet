@@ -14,15 +14,17 @@ const isExpoPushToken = (token) =>
 
 /**
  * Derive Android channelId from sound value.
+ * Must match app's notification channels (MainApplication.kt / notificationService.js).
  * Accepts: 'r1', 'r1.wav', 'r2', 'r2.wav', 'r3', 'r3.wav', 'default', 'none', etc.
- * Returns: 'default_r1', 'default_r2', 'default_r3', 'default_silent', or 'default'.
+ * Returns: 'lecturelet_r1_channel', 'lecturelet_r2_channel', 'lecturelet_r3_channel', 'default_silent', or 'default'.
  */
 const deriveChannelId = (sound) => {
   if (!sound || sound === 'default') return 'default';
   if (sound === 'none') return 'default_silent';
-  // Extract base name: 'r1.wav' -> 'r1', 'r2' -> 'r2'
   const base = sound.replace(/\.wav$/i, '');
-  if (['r1', 'r2', 'r3'].includes(base)) return `default_${base}`;
+  if (base === 'r1') return 'lecturelet_r1_channel';
+  if (base === 'r2') return 'lecturelet_r2_channel';
+  if (base === 'r3') return 'lecturelet_r3_channel';
   return 'default';
 };
 

@@ -89,8 +89,43 @@ const getAssignmentsByCreator = async (userId) => {
   return items.map((q) => toApiShape(q.id, q));
 };
 
+/**
+ * Get a single assignment by ID (Firestore document ID)
+ */
+const getAssignmentById = async (assignmentId) => {
+  const doc = await firestore.collection(ASSIGNMENTS_COLLECTION).doc(assignmentId).get();
+  if (!doc.exists) return null;
+  const data = doc.data();
+  return { id: doc.id, ...data };
+};
+
+/**
+ * Update an assignment by ID (Firestore document ID)
+ */
+const updateAssignment = async (assignmentId, updates) => {
+  const ref = firestore.collection(ASSIGNMENTS_COLLECTION).doc(assignmentId);
+  const doc = await ref.get();
+  if (!doc.exists) return null;
+
+  const cleanPayload = {};
+  if (updates.assignmentName !== undefined) cleanPayload.assignmentName = updates.assignmentName.trim();
+  if (updates.date !== undefined) cleanPayload.date = updates.date;
+  if (updates.time !== undefined) cleanPayload.time = updates.time;
+  if (updates.venue !== undefined) cleanPayload.venue = updates.venue.trim();
+  if (updates.topic !== undefined) cleanPayload.topic = updates.topic ? updates.topic.trim() : null;
+
+  cleanPayload.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+  await ref.update(cleanPayload);
+
+  const updated = await ref.get();
+  const data = updated.data();
+  return { id: updated.id, ...data };
+};
+
 module.exports = {
   createAssignment,
   getAssignmentsByCourseId,
   getAssignmentsByCreator,
+  getAssignmentById,
+  updateAssignment,
 };

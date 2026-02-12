@@ -109,8 +109,43 @@ const getQuizzesByCreator = async (userId) => {
   return quizzes.map((q) => toApiShape(q.id, q));
 };
 
+/**
+ * Get a single quiz by ID (Firestore document ID)
+ */
+const getQuizById = async (quizId) => {
+  const doc = await firestore.collection(QUIZZES_COLLECTION).doc(quizId).get();
+  if (!doc.exists) return null;
+  const data = doc.data();
+  return { id: doc.id, ...data };
+};
+
+/**
+ * Update a quiz by ID (Firestore document ID)
+ */
+const updateQuiz = async (quizId, updates) => {
+  const ref = firestore.collection(QUIZZES_COLLECTION).doc(quizId);
+  const doc = await ref.get();
+  if (!doc.exists) return null;
+
+  const cleanPayload = {};
+  if (updates.quizName !== undefined) cleanPayload.quizName = updates.quizName.trim();
+  if (updates.date !== undefined) cleanPayload.date = updates.date;
+  if (updates.time !== undefined) cleanPayload.time = updates.time;
+  if (updates.venue !== undefined) cleanPayload.venue = updates.venue.trim();
+  if (updates.topic !== undefined) cleanPayload.topic = updates.topic ? updates.topic.trim() : null;
+
+  cleanPayload.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+  await ref.update(cleanPayload);
+
+  const updated = await ref.get();
+  const data = updated.data();
+  return { id: updated.id, ...data };
+};
+
 module.exports = {
   createQuiz,
   getQuizzesByCourseId,
   getQuizzesByCreator,
+  getQuizById,
+  updateQuiz,
 };

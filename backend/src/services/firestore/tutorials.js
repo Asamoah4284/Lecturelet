@@ -89,8 +89,48 @@ const getTutorialsByCreator = async (userId) => {
   return items.map((q) => toApiShape(q.id, q));
 };
 
+/**
+ * Get a single tutorial by ID (Firestore document ID)
+ * @param {string} tutorialId - Firestore document ID
+ * @returns {Promise<Object|null>} Tutorial with camelCase fields for route compatibility, or null if not found
+ */
+const getTutorialById = async (tutorialId) => {
+  const doc = await firestore.collection(TUTORIALS_COLLECTION).doc(tutorialId).get();
+  if (!doc.exists) return null;
+  const data = doc.data();
+  return { id: doc.id, ...data };
+};
+
+/**
+ * Update a tutorial by ID (Firestore document ID)
+ * @param {string} tutorialId - Firestore document ID
+ * @param {Object} updates - Fields to update (tutorialName, date, time, venue, topic)
+ * @returns {Promise<Object|null>} Updated tutorial or null if not found
+ */
+const updateTutorial = async (tutorialId, updates) => {
+  const ref = firestore.collection(TUTORIALS_COLLECTION).doc(tutorialId);
+  const doc = await ref.get();
+  if (!doc.exists) return null;
+
+  const cleanPayload = {};
+  if (updates.tutorialName !== undefined) cleanPayload.tutorialName = updates.tutorialName.trim();
+  if (updates.date !== undefined) cleanPayload.date = updates.date;
+  if (updates.time !== undefined) cleanPayload.time = updates.time;
+  if (updates.venue !== undefined) cleanPayload.venue = updates.venue.trim();
+  if (updates.topic !== undefined) cleanPayload.topic = updates.topic ? updates.topic.trim() : null;
+
+  cleanPayload.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+  await ref.update(cleanPayload);
+
+  const updated = await ref.get();
+  const data = updated.data();
+  return { id: updated.id, ...data };
+};
+
 module.exports = {
   createTutorial,
   getTutorialsByCourseId,
   getTutorialsByCreator,
+  getTutorialById,
+  updateTutorial,
 };

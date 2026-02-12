@@ -3,7 +3,13 @@ const { body } = require('express-validator');
 const { Quiz, Course } = require('../models');
 const { isEnrolled } = require('../services/firestore/enrollments');
 const { getCourseById: getFirestoreCourseById, isCreator: isFirestoreCreator } = require('../services/firestore/courses');
-const { createQuiz: createFirestoreQuiz, getQuizzesByCourseId: getFirestoreQuizzesByCourseId, getQuizzesByCreator: getFirestoreQuizzesByCreator } = require('../services/firestore/quizzes');
+const {
+  createQuiz: createFirestoreQuiz,
+  getQuizzesByCourseId: getFirestoreQuizzesByCourseId,
+  getQuizzesByCreator: getFirestoreQuizzesByCreator,
+  getQuizById: getFirestoreQuizById,
+  updateQuiz: updateFirestoreQuiz,
+} = require('../services/firestore/quizzes');
 const { authenticate, authorize } = require('../middleware/auth');
 
 const isValidMongoObjectId = (id) => typeof id === 'string' && /^[a-fA-F0-9]{24}$/.test(id);
@@ -296,7 +302,101 @@ router.put(
       const quizId = req.params.id;
       const { quizName, date, time, venue, topic } = req.body;
 
-      // Get current quiz data before updating
+      const userId = req.user.id?.toString ? req.user.id.toString() : String(req.user.id);
+
+      // Firestore IDs are not valid MongoDB ObjectIds
+      if (!isValidMongoObjectId(quizId)) {
+        const currentQuiz = await getFirestoreQuizById(quizId);
+        if (!currentQuiz) {
+          return res.status(404).json({
+            success: false,
+            message: 'Quiz not found',
+          });
+        }
+
+        const quizCreatorId = String(currentQuiz.createdBy || '');
+        if (quizCreatorId !== userId) {
+          return res.status(403).json({
+            success: false,
+            message: 'You can only update quizzes you created',
+          });
+        }
+
+        const updateData = {};
+        if (quizName !== undefined) updateData.quizName = quizName.trim();
+        if (date !== undefined) updateData.date = date;
+        if (time !== undefined) updateData.time = time;
+        if (venue !== undefined) updateData.venue = venue.trim();
+        if (topic !== undefined) updateData.topic = topic ? topic.trim() : null;
+
+        const changes = [];
+        if (updateData.quizName && updateData.quizName !== currentQuiz.quizName) {
+          changes.push(`Quiz name: ${currentQuiz.quizName} → ${updateData.quizName}`);
+        }
+        if (updateData.date && updateData.date !== currentQuiz.date) {
+          changes.push(`Date: ${currentQuiz.date} → ${updateData.date}`);
+        }
+        if (updateData.time && updateData.time !== currentQuiz.time) {
+          changes.push(`Time: ${currentQuiz.time} → ${updateData.time}`);
+        }
+        if (updateData.venue && updateData.venue !== currentQuiz.venue) {
+          changes.push(`Venue: ${currentQuiz.venue} → ${updateData.venue}`);
+        }
+
+        const quiz = await updateFirestoreQuiz(quizId, updateData);
+        if (!quiz) {
+          return res.status(404).json({
+            success: false,
+            message: 'Quiz not found',
+          });
+        }
+
+        let pushMessage = `Quiz "${quiz.quizName}" has been updated`;
+        if (changes.length > 0) {
+          const changeSummary = changes.map(change => {
+            if (change.includes('Date:')) return 'Date changed';
+            if (change.includes('Time:')) return 'Time changed';
+            if (change.includes('Venue:')) return 'Venue changed';
+            if (change.includes('Quiz name:')) return 'Name changed';
+            return 'Updated';
+          });
+          pushMessage += `. ${changeSummary.join(', ')}`;
+        }
+
+        const notifyResult = await notifyEnrolledUsers(quiz.courseId, {
+          title: 'Quiz Updated',
+          message: pushMessage,
+          type: 'quiz_updated',
+          data: {
+            quizId: quiz.id,
+            courseId: quiz.courseId,
+            courseName: quiz.courseName,
+          },
+          courseName: quiz.courseName,
+        });
+
+        return res.json({
+          success: true,
+          message: 'Quiz updated successfully',
+          data: {
+            quiz: {
+              id: quiz.id,
+              quiz_name: quiz.quizName,
+              date: quiz.date,
+              time: quiz.time,
+              venue: quiz.venue,
+              topic: quiz.topic ?? null,
+              course_id: quiz.courseId,
+              course_code: quiz.courseCode,
+              course_name: quiz.courseName,
+            },
+            notificationsSent: notifyResult.inAppCount,
+            pushNotificationsSent: notifyResult.pushCount,
+          },
+        });
+      }
+
+      // MongoDB path
       const currentQuiz = await Quiz.findById(quizId);
       if (!currentQuiz) {
         return res.status(404).json({
@@ -305,9 +405,7 @@ router.put(
         });
       }
 
-      // Verify user is creator
       const quizCreatorId = currentQuiz.createdBy.toString();
-      const userId = req.user.id?.toString ? req.user.id.toString() : String(req.user.id);
       if (quizCreatorId !== userId) {
         return res.status(403).json({
           success: false,
@@ -315,7 +413,6 @@ router.put(
         });
       }
 
-      // Build update data
       const updateData = {};
       if (quizName !== undefined) updateData.quizName = quizName.trim();
       if (date !== undefined) updateData.date = date;
@@ -323,7 +420,6 @@ router.put(
       if (venue !== undefined) updateData.venue = venue.trim();
       if (topic !== undefined) updateData.topic = topic ? topic.trim() : null;
 
-      // Detect what changed for notification
       const changes = [];
       if (updateData.quizName && updateData.quizName !== currentQuiz.quizName) {
         changes.push(`Quiz name: ${currentQuiz.quizName} → ${updateData.quizName}`);
@@ -338,10 +434,8 @@ router.put(
         changes.push(`Venue: ${currentQuiz.venue} → ${updateData.venue}`);
       }
 
-      // Update the quiz
       const quiz = await Quiz.findByIdAndUpdate(quizId, updateData, { new: true });
 
-      // Build notification message
       let pushMessage = `Quiz "${quiz.quizName}" has been updated`;
       if (changes.length > 0) {
         const changeSummary = changes.map(change => {
@@ -354,7 +448,6 @@ router.put(
         pushMessage += `. ${changeSummary.join(', ')}`;
       }
 
-      // Notify enrolled students immediately (in-app + push)
       const notifyResult = await notifyEnrolledUsers(quiz.courseId.toString(), {
         title: 'Quiz Updated',
         message: pushMessage,

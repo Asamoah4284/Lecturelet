@@ -11,13 +11,16 @@ const ALLOWED_SOUND_IDS = ['default', 'r1', 'r2', 'r3', 'none'];
 
 /**
  * Get Android FCM channel ID for a sound preference (must match app's notification channels).
+ * Channel IDs must match frontend MainApplication.kt and notificationService.js exactly.
  * @param {string} soundId - 'default' | 'r1' | 'r2' | 'r3' | 'none'
  * @returns {string}
  */
 function getChannelIdForSound(soundId) {
   if (!soundId || soundId === 'default') return 'default';
   if (soundId === 'none') return 'default_silent';
-  if (['r1', 'r2', 'r3'].includes(soundId)) return `default_${soundId}`;
+  if (soundId === 'r1') return 'lecturelet_r1_channel';
+  if (soundId === 'r2') return 'lecturelet_r2_channel';
+  if (soundId === 'r3') return 'lecturelet_r3_channel';
   return 'default';
 }
 

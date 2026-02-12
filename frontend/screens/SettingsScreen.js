@@ -721,19 +721,19 @@ const SettingsContent = ({ navigation }) => {
       const { createNotificationChannel, getChannelIdForSound } = require('../services/notificationService');
       await createNotificationChannel(true);
       const channelId = getChannelIdForSound(soundValue);
-      // On Android, channelId must match a channel that has the custom sound configured
-      const trigger = Platform.OS === 'android' && channelId
-        ? { seconds: 1, channelId }
-        : { seconds: 1 };
+
+      // Fire immediately (trigger: null) so user hears sound on first tap
+      const content = {
+        title: 'Notification sound',
+        body: soundValue === 'default' ? 'Default' : soundValue,
+        sound: notificationSoundValue,
+        priority: Notifications.AndroidNotificationPriority.HIGH,
+        ...(Platform.OS === 'android' && channelId && { channelId }),
+      };
 
       await Notifications.scheduleNotificationAsync({
-        content: {
-          title: 'Notification sound',
-          body: soundValue === 'default' ? 'Default' : soundValue,
-          sound: notificationSoundValue,
-          priority: Notifications.AndroidNotificationPriority.HIGH,
-        },
-        trigger,
+        content,
+        trigger: null, // Immediate delivery - no 1-second delay
       });
     } catch (error) {
       console.error('Error playing sound on tap:', error);

@@ -3,7 +3,13 @@ const { body } = require('express-validator');
 const { Assignment, Course } = require('../models');
 const { isEnrolled } = require('../services/firestore/enrollments');
 const { getCourseById: getFirestoreCourseById, isCreator: isFirestoreCreator } = require('../services/firestore/courses');
-const { createAssignment: createFirestoreAssignment, getAssignmentsByCourseId: getFirestoreAssignmentsByCourseId, getAssignmentsByCreator: getFirestoreAssignmentsByCreator } = require('../services/firestore/assignments');
+const {
+  createAssignment: createFirestoreAssignment,
+  getAssignmentsByCourseId: getFirestoreAssignmentsByCourseId,
+  getAssignmentsByCreator: getFirestoreAssignmentsByCreator,
+  getAssignmentById: getFirestoreAssignmentById,
+  updateAssignment: updateFirestoreAssignment,
+} = require('../services/firestore/assignments');
 const { authenticate, authorize } = require('../middleware/auth');
 
 const isValidMongoObjectId = (id) => typeof id === 'string' && /^[a-fA-F0-9]{24}$/.test(id);
@@ -288,7 +294,101 @@ router.put(
       const assignmentId = req.params.id;
       const { assignmentName, date, time, venue, topic } = req.body;
 
-      // Get current assignment data before updating
+      const userId = req.user.id?.toString ? req.user.id.toString() : String(req.user.id);
+
+      // Firestore IDs are not valid MongoDB ObjectIds
+      if (!isValidMongoObjectId(assignmentId)) {
+        const currentAssignment = await getFirestoreAssignmentById(assignmentId);
+        if (!currentAssignment) {
+          return res.status(404).json({
+            success: false,
+            message: 'Assignment not found',
+          });
+        }
+
+        const assignmentCreatorId = String(currentAssignment.createdBy || '');
+        if (assignmentCreatorId !== userId) {
+          return res.status(403).json({
+            success: false,
+            message: 'You can only update assignments you created',
+          });
+        }
+
+        const updateData = {};
+        if (assignmentName !== undefined) updateData.assignmentName = assignmentName.trim();
+        if (date !== undefined) updateData.date = date;
+        if (time !== undefined) updateData.time = time;
+        if (venue !== undefined) updateData.venue = venue.trim();
+        if (topic !== undefined) updateData.topic = topic ? topic.trim() : null;
+
+        const changes = [];
+        if (updateData.assignmentName && updateData.assignmentName !== currentAssignment.assignmentName) {
+          changes.push(`Assignment name: ${currentAssignment.assignmentName} → ${updateData.assignmentName}`);
+        }
+        if (updateData.date && updateData.date !== currentAssignment.date) {
+          changes.push(`Submission deadline date: ${currentAssignment.date} → ${updateData.date}`);
+        }
+        if (updateData.time && updateData.time !== currentAssignment.time) {
+          changes.push(`Submission deadline time: ${currentAssignment.time} → ${updateData.time}`);
+        }
+        if (updateData.venue && updateData.venue !== currentAssignment.venue) {
+          changes.push(`Venue: ${currentAssignment.venue} → ${updateData.venue}`);
+        }
+
+        const assignment = await updateFirestoreAssignment(assignmentId, updateData);
+        if (!assignment) {
+          return res.status(404).json({
+            success: false,
+            message: 'Assignment not found',
+          });
+        }
+
+        let pushMessage = `Assignment "${assignment.assignmentName}" has been updated`;
+        if (changes.length > 0) {
+          const changeSummary = changes.map(change => {
+            if (change.includes('deadline date:')) return 'Deadline date changed';
+            if (change.includes('deadline time:')) return 'Deadline time changed';
+            if (change.includes('Venue:')) return 'Venue changed';
+            if (change.includes('name:')) return 'Name changed';
+            return 'Updated';
+          });
+          pushMessage += `. ${changeSummary.join(', ')}`;
+        }
+
+        const notifyResult = await notifyEnrolledUsers(assignment.courseId, {
+          title: 'Assignment Updated',
+          message: pushMessage,
+          type: 'assignment_updated',
+          data: {
+            assignmentId: assignment.id,
+            courseId: assignment.courseId,
+            courseName: assignment.courseName,
+          },
+          courseName: assignment.courseName,
+        });
+
+        return res.json({
+          success: true,
+          message: 'Assignment updated successfully',
+          data: {
+            assignment: {
+              id: assignment.id,
+              assignment_name: assignment.assignmentName,
+              date: assignment.date,
+              time: assignment.time,
+              venue: assignment.venue,
+              topic: assignment.topic ?? null,
+              course_id: assignment.courseId,
+              course_code: assignment.courseCode,
+              course_name: assignment.courseName,
+            },
+            notificationsSent: notifyResult.inAppCount,
+            pushNotificationsSent: notifyResult.pushCount,
+          },
+        });
+      }
+
+      // MongoDB path
       const currentAssignment = await Assignment.findById(assignmentId);
       if (!currentAssignment) {
         return res.status(404).json({
@@ -297,9 +397,7 @@ router.put(
         });
       }
 
-      // Verify user is creator
       const assignmentCreatorId = currentAssignment.createdBy.toString();
-      const userId = req.user.id?.toString ? req.user.id.toString() : String(req.user.id);
       if (assignmentCreatorId !== userId) {
         return res.status(403).json({
           success: false,
@@ -307,7 +405,6 @@ router.put(
         });
       }
 
-      // Build update data
       const updateData = {};
       if (assignmentName !== undefined) updateData.assignmentName = assignmentName.trim();
       if (date !== undefined) updateData.date = date;
@@ -315,7 +412,6 @@ router.put(
       if (venue !== undefined) updateData.venue = venue.trim();
       if (topic !== undefined) updateData.topic = topic ? topic.trim() : null;
 
-      // Detect what changed for notification
       const changes = [];
       if (updateData.assignmentName && updateData.assignmentName !== currentAssignment.assignmentName) {
         changes.push(`Assignment name: ${currentAssignment.assignmentName} → ${updateData.assignmentName}`);
@@ -330,10 +426,8 @@ router.put(
         changes.push(`Venue: ${currentAssignment.venue} → ${updateData.venue}`);
       }
 
-      // Update the assignment
       const assignment = await Assignment.findByIdAndUpdate(assignmentId, updateData, { new: true });
 
-      // Build notification message
       let pushMessage = `Assignment "${assignment.assignmentName}" has been updated`;
       if (changes.length > 0) {
         const changeSummary = changes.map(change => {
@@ -346,7 +440,6 @@ router.put(
         pushMessage += `. ${changeSummary.join(', ')}`;
       }
 
-      // Notify enrolled students immediately (in-app + push)
       const notifyResult = await notifyEnrolledUsers(assignment.courseId.toString(), {
         title: 'Assignment Updated',
         message: pushMessage,

@@ -3,7 +3,13 @@ const { body } = require('express-validator');
 const { Tutorial, Course } = require('../models');
 const { isEnrolled } = require('../services/firestore/enrollments');
 const { getCourseById: getFirestoreCourseById, isCreator: isFirestoreCreator } = require('../services/firestore/courses');
-const { createTutorial: createFirestoreTutorial, getTutorialsByCourseId: getFirestoreTutorialsByCourseId, getTutorialsByCreator: getFirestoreTutorialsByCreator } = require('../services/firestore/tutorials');
+const {
+  createTutorial: createFirestoreTutorial,
+  getTutorialsByCourseId: getFirestoreTutorialsByCourseId,
+  getTutorialsByCreator: getFirestoreTutorialsByCreator,
+  getTutorialById: getFirestoreTutorialById,
+  updateTutorial: updateFirestoreTutorial,
+} = require('../services/firestore/tutorials');
 const { authenticate, authorize } = require('../middleware/auth');
 
 const isValidMongoObjectId = (id) => typeof id === 'string' && /^[a-fA-F0-9]{24}$/.test(id);
@@ -289,7 +295,101 @@ router.put(
       const tutorialId = req.params.id;
       const { tutorialName, date, time, venue, topic } = req.body;
 
-      // Get current tutorial data before updating
+      const userId = req.user.id?.toString ? req.user.id.toString() : String(req.user.id);
+
+      // Firestore IDs are not valid MongoDB ObjectIds (e.g. "6g4B1eaQaF7KiqW2NuOM")
+      if (!isValidMongoObjectId(tutorialId)) {
+        const currentTutorial = await getFirestoreTutorialById(tutorialId);
+        if (!currentTutorial) {
+          return res.status(404).json({
+            success: false,
+            message: 'Tutorial not found',
+          });
+        }
+
+        const tutorialCreatorId = String(currentTutorial.createdBy || '');
+        if (tutorialCreatorId !== userId) {
+          return res.status(403).json({
+            success: false,
+            message: 'You can only update tutorials you created',
+          });
+        }
+
+        const updateData = {};
+        if (tutorialName !== undefined) updateData.tutorialName = tutorialName.trim();
+        if (date !== undefined) updateData.date = date;
+        if (time !== undefined) updateData.time = time;
+        if (venue !== undefined) updateData.venue = venue.trim();
+        if (topic !== undefined) updateData.topic = topic ? topic.trim() : null;
+
+        const changes = [];
+        if (updateData.tutorialName && updateData.tutorialName !== currentTutorial.tutorialName) {
+          changes.push(`Tutorial name: ${currentTutorial.tutorialName} → ${updateData.tutorialName}`);
+        }
+        if (updateData.date && updateData.date !== currentTutorial.date) {
+          changes.push(`Date: ${currentTutorial.date} → ${updateData.date}`);
+        }
+        if (updateData.time && updateData.time !== currentTutorial.time) {
+          changes.push(`Time: ${currentTutorial.time} → ${updateData.time}`);
+        }
+        if (updateData.venue && updateData.venue !== currentTutorial.venue) {
+          changes.push(`Venue: ${currentTutorial.venue} → ${updateData.venue}`);
+        }
+
+        const tutorial = await updateFirestoreTutorial(tutorialId, updateData);
+        if (!tutorial) {
+          return res.status(404).json({
+            success: false,
+            message: 'Tutorial not found',
+          });
+        }
+
+        let pushMessage = `Tutorial "${tutorial.tutorialName}" has been updated`;
+        if (changes.length > 0) {
+          const changeSummary = changes.map(change => {
+            if (change.includes('Date:')) return 'Date changed';
+            if (change.includes('Time:')) return 'Time changed';
+            if (change.includes('Venue:')) return 'Venue changed';
+            if (change.includes('name:')) return 'Name changed';
+            return 'Updated';
+          });
+          pushMessage += `. ${changeSummary.join(', ')}`;
+        }
+
+        const notifyResult = await notifyEnrolledUsers(tutorial.courseId, {
+          title: 'Tutorial Updated',
+          message: pushMessage,
+          type: 'tutorial_updated',
+          data: {
+            tutorialId: tutorial.id,
+            courseId: tutorial.courseId,
+            courseName: tutorial.courseName,
+          },
+          courseName: tutorial.courseName,
+        });
+
+        return res.json({
+          success: true,
+          message: 'Tutorial updated successfully',
+          data: {
+            tutorial: {
+              id: tutorial.id,
+              tutorial_name: tutorial.tutorialName,
+              date: tutorial.date,
+              time: tutorial.time,
+              venue: tutorial.venue,
+              topic: tutorial.topic ?? null,
+              course_id: tutorial.courseId,
+              course_code: tutorial.courseCode,
+              course_name: tutorial.courseName,
+            },
+            notificationsSent: notifyResult.inAppCount,
+            pushNotificationsSent: notifyResult.pushCount,
+          },
+        });
+      }
+
+      // MongoDB path
       const currentTutorial = await Tutorial.findById(tutorialId);
       if (!currentTutorial) {
         return res.status(404).json({
@@ -298,9 +398,7 @@ router.put(
         });
       }
 
-      // Verify user is creator
       const tutorialCreatorId = currentTutorial.createdBy.toString();
-      const userId = req.user.id?.toString ? req.user.id.toString() : String(req.user.id);
       if (tutorialCreatorId !== userId) {
         return res.status(403).json({
           success: false,
@@ -308,7 +406,6 @@ router.put(
         });
       }
 
-      // Build update data
       const updateData = {};
       if (tutorialName !== undefined) updateData.tutorialName = tutorialName.trim();
       if (date !== undefined) updateData.date = date;
@@ -316,7 +413,6 @@ router.put(
       if (venue !== undefined) updateData.venue = venue.trim();
       if (topic !== undefined) updateData.topic = topic ? topic.trim() : null;
 
-      // Detect what changed for notification
       const changes = [];
       if (updateData.tutorialName && updateData.tutorialName !== currentTutorial.tutorialName) {
         changes.push(`Tutorial name: ${currentTutorial.tutorialName} → ${updateData.tutorialName}`);
@@ -331,10 +427,8 @@ router.put(
         changes.push(`Venue: ${currentTutorial.venue} → ${updateData.venue}`);
       }
 
-      // Update the tutorial
       const tutorial = await Tutorial.findByIdAndUpdate(tutorialId, updateData, { new: true });
 
-      // Build notification message
       let pushMessage = `Tutorial "${tutorial.tutorialName}" has been updated`;
       if (changes.length > 0) {
         const changeSummary = changes.map(change => {
@@ -347,7 +441,6 @@ router.put(
         pushMessage += `. ${changeSummary.join(', ')}`;
       }
 
-      // Notify enrolled students immediately (in-app + push)
       const notifyResult = await notifyEnrolledUsers(tutorial.courseId.toString(), {
         title: 'Tutorial Updated',
         message: pushMessage,

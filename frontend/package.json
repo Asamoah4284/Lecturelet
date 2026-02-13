@@ -19,7 +19,9 @@
     "build:all": "eas build --platform all",
     "build:dev": "eas build --platform android --profile development",
     "build:local:dev": "eas build --platform android --profile development --local",
-    "build:local:apk": "eas build --platform android --profile preview --local"
+    "build:local:apk": "eas build --platform android --profile preview --local",
+    "submit:ios": "eas submit --platform ios --latest",
+    "submit:android": "eas submit --platform android --latest"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

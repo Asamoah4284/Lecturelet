@@ -3,8 +3,8 @@
     "name": "LectureLet",
     "slug": "LectureLet",
     "scheme": "lecturelet",
-    "version": "1.0.7",
-    "runtimeVersion": "1.0.7",
+    "version": "1.0.8",
+    "runtimeVersion": "1.0.8",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./assets/logo-1.png",
@@ -19,11 +19,10 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.LectureLet.app",
-      "buildNumber": "13",
+      "buildNumber": "16",
       "infoPlist": {
         "UIBackgroundModes": [
-          "remote-notification",
-          "remote-notificatio"
+          "remote-notification"
         ],
         "ITSAppUsesNonExemptEncryption": false
       },
